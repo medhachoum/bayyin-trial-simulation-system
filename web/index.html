@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html dir="rtl" lang="ar">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>بيّن — محكمة سعودية افتراضية</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Sans+Arabic:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --bg:#eaeef7; --bg2:#f4f7fc; --card:#fff; --bd:#e7ebf4; --bd2:#d7dde9;
+    --txt:#161c29; --txt2:#39425a; --muted:#7b8398; --primary:#4b5bd6; --primary2:#6d7bf0; --primary-d:#3543bf;
+    --judge:#bd8a12; --defendant:#0d9488; --plaintiff:#2563eb; --expert:#7c4ddb; --appeal:#c43d63; --system:#5d6678;
+    --ok:#16a34a; --bad:#c43d63;
+    --edge:#c4cde0; --edge-on:#4b5bd6;
+    --sh1:0 1px 2px rgba(20,30,60,.05); --sh2:0 8px 22px -14px rgba(22,34,68,.30); --sh3:0 20px 44px -20px rgba(22,34,68,.45);
+    --ease:cubic-bezier(.22,.7,.2,1);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;overflow:hidden}
+  body{font-family:'IBM Plex Sans Arabic',system-ui,sans-serif;color:var(--txt);
+    background:radial-gradient(1200px 600px at 90% -10%,rgba(75,91,214,.06),transparent 60%),linear-gradient(180deg,var(--bg2),var(--bg));
+    display:flex;flex-direction:column}
+  button,input,select,textarea{font-family:inherit} :focus-visible{outline:2px solid var(--primary);outline-offset:1px;border-radius:8px}
+
+  header.top{flex:0 0 auto;display:flex;align-items:center;gap:11px;flex-wrap:wrap;background:rgba(255,255,255,.92);
+    backdrop-filter:blur(12px);border-bottom:1px solid var(--bd);padding:9px 16px;z-index:40;box-shadow:0 4px 22px -16px rgba(20,30,60,.5)}
+  .logo{width:38px;height:38px;display:grid;place-items:center;font-size:20px;border-radius:11px;
+    background:linear-gradient(145deg,var(--primary2),var(--primary-d));color:#fff;box-shadow:0 8px 18px -8px rgba(53,67,191,.6)}
+  .brand{display:flex;align-items:center;gap:10px;margin-inline-end:auto} .brand h1{font-size:18px;margin:0;font-weight:700} .brand p{margin:0;color:var(--muted);font-size:11px}
+  .seg{display:flex;background:#eef1fa;border:1px solid var(--bd);border-radius:11px;padding:3px;gap:3px}
+  .segb{border:0;background:transparent;border-radius:8px;padding:7px 13px;font-size:12.5px;color:var(--txt2);cursor:pointer;transition:.15s}
+  .segb.on{background:#fff;color:var(--primary);box-shadow:var(--sh1);font-weight:700}
+  .pill{font-size:11.5px;color:var(--muted);background:#eef1fa;border:1px solid var(--bd);border-radius:999px;padding:6px 12px;max-width:34vw;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+  .pill b{color:var(--txt2)} .pill.dl{color:var(--appeal);background:#fdeef2;border-color:#f6cdd9}
+  .toggle{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--txt2);cursor:pointer}.toggle input{accent-color:var(--primary)}
+  .run{font-weight:700;font-size:13.5px;color:#fff;border:0;border-radius:10px;padding:9px 17px;cursor:pointer;
+    background:linear-gradient(145deg,var(--primary2),var(--primary-d));box-shadow:0 10px 20px -10px rgba(53,67,191,.7);transition:.15s}
+  .run:hover{transform:translateY(-1px)} .run:active{transform:scale(.97)} .run:disabled{opacity:.5;transform:none}
+  #progress{flex:0 0 auto;height:3px;background:#e1e6f1}
+  #progbar{height:100%;width:0;background:linear-gradient(90deg,var(--primary),var(--primary2));transition:width .4s var(--ease)}
+  .spin{display:inline-block;width:12px;height:12px;border:2px solid rgba(75,91,214,.25);border-top-color:var(--primary);border-radius:50%;animation:sp .7s linear infinite;vertical-align:-2px}
+  @keyframes sp{to{transform:rotate(360deg)}}
+  /* مؤشّر عمل العقدة النشطة */
+  .node.active .nstat{position:relative}
+  .node.active .nstat::after{content:'';position:absolute;inset:-6px;border:2px solid transparent;border-top-color:var(--primary);border-radius:50%;animation:sp .8s linear infinite}
+  /* صفحة الإعدادات */
+  .modal{position:fixed;inset:0;background:rgba(15,20,35,.45);display:none;align-items:flex-start;justify-content:center;z-index:60;padding:32px 16px;overflow:auto;backdrop-filter:blur(2px)}
+  .modal.open{display:flex}
+  .sheet{background:var(--card);border-radius:18px;width:690px;max-width:96vw;box-shadow:var(--sh3);overflow:hidden;animation:inspIn .3s var(--ease)}
+  .sheet-h{display:flex;align-items:center;gap:8px;padding:14px 18px;border-bottom:1px solid var(--bd);font-weight:700;font-size:15px}
+  .sheet-b{padding:16px 18px;max-height:68vh;overflow:auto;display:flex;flex-direction:column;gap:12px}
+  .sheet-sec{font-weight:700;font-size:13px;color:var(--primary);margin-top:6px;border-bottom:1px solid var(--bd);padding-bottom:5px}
+  .set-acc{border:1px solid var(--bd);border-radius:10px;overflow:hidden}
+  .set-acc>summary{padding:9px 12px;cursor:pointer;font-size:12.5px;font-weight:600;color:var(--txt2);background:#f6f8fc;list-style:none}
+  .set-acc>summary::-webkit-details-marker{display:none} .set-acc>summary::before{content:'▸ '}
+  .set-acc[open]>summary::before{content:'▾ '}
+  .set-acc textarea{width:100%;border:0;border-top:1px solid var(--bd);padding:11px;font-size:12px;line-height:1.85;min-height:104px;resize:vertical;color:var(--txt2);font-family:inherit}
+  .mcustom{margin-top:6px} .fld select{cursor:pointer;appearance:auto}
+  .sheet-f{display:flex;gap:9px;padding:13px 18px;border-top:1px solid var(--bd)}
+  .keyhint{font-size:11px;color:var(--muted);background:#f4f6fd;border:1px solid var(--bd);border-radius:8px;padding:7px 10px}
+
+  .main{flex:1 1 auto;display:flex;min-height:0;position:relative}
+
+  /* لوحة الدعوى */
+  #casePanel{flex:0 0 auto;width:330px;max-width:86vw;background:var(--card);border-inline-end:1px solid var(--bd);display:flex;flex-direction:column;overflow:auto;transition:width .35s var(--ease),opacity .3s;z-index:25}
+  #casePanel.closed{display:none}
+  .node.sub{width:118px} .node.sub .accent{height:4px}
+  .cp-h{padding:12px 16px;border-bottom:1px solid var(--bd);font-weight:700;font-size:13.5px;display:flex;align-items:center;gap:8px;position:sticky;top:0;background:var(--card);z-index:2}
+  .cp-b{padding:13px 16px;display:flex;flex-direction:column;gap:10px}
+  .fld{display:flex;flex-direction:column;gap:4px} .fld label{font-size:11px;color:var(--muted);font-weight:600}
+  .fld input,.fld select,.fld textarea{border:1px solid var(--bd2);border-radius:9px;padding:8px 10px;font-size:13px;color:var(--txt);background:#fff;width:100%}
+  .fld textarea{resize:vertical;min-height:62px;line-height:1.7} .row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
+  .opts{display:flex;flex-direction:column;gap:7px;border-top:1px dashed var(--bd2);padding-top:10px}
+  .presets{display:flex;gap:7px;flex-wrap:wrap} .preset{font-size:11.5px;border:1px solid var(--bd2);background:#f5f8fc;border-radius:999px;padding:5px 11px;cursor:pointer;color:var(--txt2)}
+  .preset:hover{border-color:var(--primary2);color:var(--primary)} .hint-sm{font-size:11px;color:var(--muted);line-height:1.6}
+
+  /* اللوحة */
+  #stage{flex:1 1 auto;position:relative;overflow:hidden;cursor:grab;background-image:radial-gradient(circle,#d0d8ec 1.2px,transparent 1.3px);background-size:24px 24px}
+  #stage.grabbing{cursor:grabbing} #stage.hide{display:none}
+  #world{position:absolute;top:0;left:0;width:4200px;height:9200px;transform-origin:0 0}
+  #world.anim{transition:transform .55s var(--ease)}
+  #edges{position:absolute;top:0;left:0;width:4200px;height:9200px;overflow:visible;pointer-events:none}
+  .edge{fill:none;stroke:var(--edge);stroke-width:2.5;stroke-linecap:round;marker-end:url(#arr)}
+  .edge.on{stroke:var(--edge-on);stroke-width:3;marker-end:url(#arrOn)}
+  .node{position:absolute;width:220px;background:var(--card);border:1px solid var(--bd);border-radius:16px;box-shadow:var(--sh1),var(--sh2);cursor:grab;user-select:none;transition:box-shadow .25s,transform .18s var(--ease);animation:pop .42s var(--ease) both;overflow:hidden}
+  @keyframes pop{0%{opacity:0;transform:translateY(10px) scale(.86)}60%{opacity:1;transform:scale(1.03)}100%{transform:scale(1)}}
+  .node:hover{transform:translateY(-3px);box-shadow:var(--sh1),var(--sh3)} .node.dragging{cursor:grabbing;box-shadow:var(--sh3);z-index:6;transform:scale(1.03)}
+  .node.active{border-color:transparent} .node.active::after{content:'';position:absolute;inset:-1px;border-radius:16px;pointer-events:none;box-shadow:0 0 0 2px var(--primary),0 0 0 6px rgba(75,91,214,.15);animation:ring 1.9s var(--ease) infinite}
+  @keyframes ring{0%,100%{box-shadow:0 0 0 2px var(--primary),0 0 0 5px rgba(75,91,214,.18)}50%{box-shadow:0 0 0 2px var(--primary),0 0 0 9px rgba(75,91,214,.04)}}
+  .node.sel{border-color:var(--primary);box-shadow:0 0 0 3px rgba(75,91,214,.22),var(--sh3)}
+  .accent{height:5px;background:var(--system)}
+  .node-row{display:flex;align-items:center;gap:11px;padding:11px 13px 7px}
+  .nic{width:38px;height:38px;border-radius:11px;display:grid;place-items:center;font-size:19px;background:#eef1f6;flex:0 0 auto}
+  .nmeta{min-width:0;margin-inline-end:auto} .nstage{font-weight:700;font-size:13.5px;line-height:1.25} .nactor{font-size:11px;color:var(--muted);margin-top:1px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:120px}
+  .nstat{width:9px;height:9px;border-radius:50%;background:#c7cee0;flex:0 0 auto} .node.active .nstat{background:var(--primary)} .node.done .nstat{background:var(--ok)}
+  .ndate{font-size:10.5px;color:var(--muted);padding:0 13px 9px;display:flex;align-items:center;gap:5px}
+  .novr{font-size:10px;color:var(--primary);background:#eef1fe;border:1px solid #d3dbfb;border-radius:6px;padding:1px 6px;margin-inline-start:6px}
+  .role-judge .accent{background:var(--judge)} .role-judge .nic{background:#fbf2da;color:#a9790a}
+  .role-defendant .accent{background:var(--defendant)} .role-defendant .nic{background:#e3f6f3;color:#0b8576}
+  .role-plaintiff .accent{background:var(--plaintiff)} .role-plaintiff .nic{background:#e8f0fe;color:#2563eb}
+  .role-expert .accent{background:var(--expert)} .role-expert .nic{background:#f0e9fd;color:#6b46d9}
+  .role-appeal .accent{background:var(--appeal)} .role-appeal .nic{background:#fce7ef;color:#c43d63}
+  .role-system .accent{background:var(--system)} .role-system .nic{background:#eef1f6;color:#566}
+  .lane-h{position:absolute;display:flex;align-items:center;justify-content:center;gap:7px;height:32px;border-radius:10px;font-weight:700;font-size:12.5px;color:var(--txt2);background:rgba(255,255,255,.9);border:1px solid var(--bd);box-shadow:var(--sh1);backdrop-filter:blur(4px)}
+  .lane-dot{width:9px;height:9px;border-radius:3px}
+
+  .tools{position:absolute;bottom:16px;inset-inline-start:16px;display:flex;flex-direction:column;gap:7px;z-index:10}
+  .tool{width:40px;height:40px;border-radius:11px;border:1px solid var(--bd);background:rgba(255,255,255,.93);color:var(--txt2);font-size:17px;cursor:pointer;display:grid;place-items:center;box-shadow:var(--sh2);transition:.15s}
+  .tool:hover{color:var(--primary);transform:translateY(-2px)} .tool:active{transform:scale(.92)}
+  .legend{position:absolute;top:12px;inset-inline-end:12px;background:rgba(255,255,255,.92);border:1px solid var(--bd);border-radius:11px;padding:9px 12px;font-size:11px;color:var(--txt2);box-shadow:var(--sh2);display:flex;flex-direction:column;gap:4px;z-index:9}
+  .lg{display:flex;align-items:center;gap:6px} .lgd{width:9px;height:9px;border-radius:3px}
+  .mm{position:absolute;bottom:16px;inset-inline-end:16px;width:144px;height:188px;background:rgba(255,255,255,.92);border:1px solid var(--bd);border-radius:11px;box-shadow:var(--sh2);z-index:9}
+  .panelToggle{position:absolute;top:12px;inset-inline-start:12px;z-index:11;border:1px solid var(--bd2);background:#fff;border-radius:10px;padding:8px 12px;font-size:13px;cursor:pointer;color:var(--txt2)}
+
+  /* عرض التقويم */
+  #calendar{flex:1 1 auto;overflow:auto;padding:22px 16px;display:none}
+  #calendar.show{display:block}
+  .cal-wrap{max-width:720px;margin:0 auto}
+  .cal-month{position:sticky;top:0;background:linear-gradient(90deg,var(--primary),var(--primary2));color:#fff;font-weight:700;font-size:14px;padding:8px 14px;border-radius:10px;margin:18px 0 10px;box-shadow:var(--sh2)}
+  .cal-row{display:flex;align-items:stretch;gap:12px;margin:0 0 8px;animation:rise .4s var(--ease) both}
+  .cal-row[data-idx]{cursor:pointer} .cal-row[data-idx]:hover .cal-ev{border-color:var(--primary2);box-shadow:var(--sh2)}
+  @keyframes rise{from{opacity:0;transform:translateX(8px)}to{opacity:1}}
+  .cal-date{flex:0 0 110px;text-align:center;background:var(--card);border:1px solid var(--bd);border-radius:11px;padding:9px 6px;box-shadow:var(--sh1)}
+  .cal-hijri{font-weight:700;font-size:12.5px;color:var(--txt2)} .cal-greg{font-size:10.5px;color:var(--muted);margin-top:2px}
+  .cal-line{flex:0 0 auto;width:3px;border-radius:3px;background:var(--system)}
+  .cal-ev{flex:1 1 auto;background:var(--card);border:1px solid var(--bd);border-radius:11px;padding:11px 13px;display:flex;align-items:center;gap:9px;box-shadow:var(--sh1);font-size:13.5px;color:var(--txt2)}
+  .cal-ic{font-size:18px}
+  .cal-row.dl .cal-ev{background:#fdeef2;border-color:#f6cdd9;color:var(--appeal);font-weight:700} .cal-row.dl .cal-line{background:var(--appeal)} .cal-row.dl .cal-date{border-color:#f6cdd9}
+  .cal-dlbadge{margin-inline-start:auto;font-size:11px;background:var(--appeal);color:#fff;border-radius:999px;padding:2px 9px}
+  .cal-empty{text-align:center;color:var(--muted);margin-top:60px;font-size:14px}
+
+  /* المفتّش */
+  #inspector{flex:0 0 auto;width:392px;max-width:88vw;background:var(--card);border-inline-start:1px solid var(--bd);display:flex;flex-direction:column;transition:margin .4s var(--ease);z-index:25;box-shadow:-10px 0 34px -24px rgba(22,34,68,.5)}
+  #inspector.closed{margin-inline-end:calc(-392px - 1px)}
+  .insp-top{display:flex;align-items:center;gap:8px;padding:12px 16px;border-bottom:1px solid var(--bd)} .insp-top .t{font-weight:700;font-size:14px;margin-inline-end:auto}
+  .iclose{border:0;background:#eef1fa;border-radius:9px;width:30px;height:30px;cursor:pointer;color:var(--muted);font-size:15px}
+  .insp-body{flex:1 1 auto;overflow:auto;padding:16px} .insp-body.enter{animation:inspIn .3s var(--ease)} @keyframes inspIn{from{opacity:0;transform:translateY(8px)}to{opacity:1}}
+  .insp-empty{color:var(--muted);text-align:center;margin-top:48px;font-size:13.5px;line-height:2} .insp-empty .g{font-size:36px;display:block;opacity:.55;margin-bottom:8px}
+  .ihead{display:flex;align-items:center;gap:11px;padding-bottom:11px;border-bottom:1px solid var(--bd)} .ihead .nic{width:44px;height:44px;font-size:21px}
+  .istage{font-weight:700;font-size:15.5px} .iactor{font-size:12px;color:var(--muted);margin-top:2px}
+  .idate{margin-top:11px;font-size:12px;color:var(--txt2);background:#f4f6fd;border:1px solid var(--bd);border-radius:9px;padding:7px 11px}
+  .method{background:#f6f8fc;border:1px solid var(--bd);border-radius:11px;padding:10px 12px;color:#49526a;font-size:12.5px;line-height:1.8;margin-top:12px}
+  .sec{margin-top:14px} .seclbl{display:flex;align-items:center;gap:7px;font-size:11.5px;font-weight:700;color:var(--muted);margin-bottom:6px}
+  .ovbadge{font-size:10px;color:var(--primary);background:#eef1fe;border:1px solid #d3dbfb;border-radius:6px;padding:1px 7px}
+  .edit{width:100%;min-height:150px;border:1px solid var(--bd2);border-radius:10px;padding:11px;font-size:13px;line-height:1.95;color:var(--txt2);resize:vertical;background:#fff} .edit:focus{border-color:var(--primary)}
+  .save{margin-top:9px;width:100%;font-weight:700;font-size:13px;color:#fff;border:0;border-radius:10px;padding:10px;cursor:pointer;background:linear-gradient(145deg,var(--primary2),var(--primary-d));box-shadow:0 8px 18px -10px rgba(53,67,191,.7);transition:.15s} .save:hover{transform:translateY(-1px)} .save:active{transform:scale(.98)}
+  .txt{white-space:pre-wrap;margin:0;line-height:1.95;font-size:13.5px;color:var(--txt2)}
+  .note{font-size:12px;color:var(--muted);margin-top:8px;padding-inline-start:11px;border-inline-start:2px solid var(--bd2);line-height:1.7} .note b{color:var(--txt2)}
+  .flagbox{margin-top:9px;font-size:12px;border-radius:9px;padding:8px 11px} .flagbox.warn{color:#8a5d00;background:#fdf6e6;border:1px solid #f0e2bb} .flagbox.bad{color:var(--bad);background:#fce7ef;border:1px solid #f6cdd9}
+  .cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px} .chip{font-size:11px;color:#7a5d10;background:#fbf3df;border:1px solid #eedfb6;border-radius:999px;padding:4px 9px}
+  .rsec{margin-top:9px;border:1px solid var(--bd);border-radius:11px;padding:11px 13px;background:#fbfcfe} .rsec.op{border-color:#efe1bb;background:#fdf8ec} .rsec h4{margin:0 0 5px;font-size:12px;color:var(--judge)} .rsec p{margin:0;white-space:pre-wrap;line-height:1.9;font-size:13px;color:var(--txt2)}
+  .badge{display:inline-block;margin-top:10px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px} .badge.yes{color:var(--plaintiff);background:#e8f0fe;border:1px solid #cfe0fd} .badge.no{color:#9a7b1b;background:#fbf3df;border:1px solid #efe1bb}
+  .conf{display:inline-block;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:999px;margin-inline-start:6px} .conf.hi{color:#0e7a52;background:#e6f6ee} .conf.mid{color:#8a5d00;background:#fdf6e6} .conf.lo{color:var(--bad);background:#fce7ef} .conf.blk{color:#fff;background:var(--bad)}
+  .chain{margin-top:8px;display:flex;flex-direction:column;gap:5px} .op{display:flex;align-items:center;gap:8px;font-size:12.5px;border:1px solid var(--bd);border-radius:9px;padding:7px 10px;background:#fbfcfe} .op .ok{color:var(--ok)} .op .bd{color:var(--bad)} .op .nm{margin-inline-end:auto;color:var(--txt2);font-weight:600}
+  .judges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px} .jcard{border:1px solid var(--bd);border-radius:11px;padding:10px 6px;text-align:center;background:#fbfcfe} .jlens{font-size:10.5px;color:var(--muted);min-height:30px;display:grid;place-items:center;line-height:1.3} .jvote{font-weight:800;font-size:12.5px;padding:5px 0;border-radius:8px;margin-top:5px}
+  .v-up{color:#0e7a52;background:#e6f6ee}.v-mod{color:#9a7b1b;background:#fbf3df}.v-rev{color:#b23a5b;background:#fdeef2} .cons{margin-top:10px;text-align:center;font-weight:800;color:var(--primary);border-top:1px dashed var(--bd2);padding-top:9px;font-size:13px}
+  .out{text-align:center;margin-top:8px} .out .big{font-size:30px} .out.ok{color:#15724a}.out.bad{color:var(--bad)} .out p{margin:6px 0 0;font-size:12.5px;line-height:1.8;color:var(--txt2)}
+</style>
+</head>
+<body>
+  <header class="top">
+    <div class="brand"><div class="logo">⚖️</div><div><h1>بيّن</h1><p>محكمة سعودية افتراضية زمنية الوعي</p></div></div>
+    <div class="seg" id="viewSeg"><button class="segb on" data-view="flow">🗂️ المخطّط</button><button class="segb" data-view="calendar">📅 التقويم</button></div>
+    <div class="pill" id="statusText">جاهز — املأ بيانات الدعوى ثم «شغّل المحاكاة».</div>
+    <div class="pill dl" id="dlBanner" style="display:none"></div>
+    <button class="hbtn" id="cpToggle" title="إظهار/إخفاء بيانات الدعوى">☰</button>
+    <button class="hbtn" id="zin" title="تكبير">＋</button>
+    <button class="hbtn" id="zout" title="تصغير">－</button>
+    <button class="hbtn" id="zfit" title="ملاءمة الكل">⛶</button>
+    <button class="hbtn" id="openSettings" title="الإعدادات">⚙️</button>
+    <label class="toggle"><input type="checkbox" id="real"> حقيقي <span class="spin" id="busy" style="display:none"></span></label>
+    <button class="run" id="run">▶ شغّل المحاكاة</button>
+  </header>
+  <div id="progress"><div id="progbar"></div></div>
+
+  <div class="main">
+    <aside id="casePanel">
+      <div class="cp-h">📋 بيانات الدعوى <button class="preset" style="margin-inline-start:auto" id="clearOv">🗑️ التعديلات</button></div>
+      <div class="cp-b">
+        <div class="presets"><button class="preset" data-preset="commercial">قضية توريد</button><button class="preset" data-preset="prescription">دفعٌ بالتقادم</button><button class="preset" data-preset="training">وضع تدريب</button></div>
+        <div class="fld"><label>موضوع الدعوى</label><input id="f_subject"></div>
+        <div class="row2"><div class="fld"><label>قيمة المطالبة (ر.س)</label><input id="f_value" type="number"></div><div class="fld"><label>تاريخ القيد</label><input id="f_filing" type="date"></div></div>
+        <div class="row2"><div class="fld"><label>المدعي</label><input id="f_plaintiff"></div><div class="fld"><label>المدعى عليه</label><input id="f_defendant"></div></div>
+        <div class="fld"><label>الوقائع / العقد (حرّرها لتغيّر مجرى الحكم)</label><textarea id="f_claim"></textarea></div>
+        <div class="fld"><label>ردّ المدعي</label><textarea id="f_reply"></textarea></div>
+        <div class="opts">
+          <label class="toggle"><input type="checkbox" id="f_appeal"> طلب الاستئناف بعد الحكم</label>
+          <label class="toggle"><input type="checkbox" id="f_training"> وضع التدريب (حقن ثغرة م.200)</label>
+          <label class="toggle"><input type="checkbox" id="f_recon"> طلب التماس إعادة النظر</label>
+        </div>
+        <div class="hint-sm">💡 بعد التشغيل: افتح أي عقدة وحرّر نصّها ثم «احفظ وأعد التشغيل». جرّب إضافة «الدفع بالتقادم» في المذكرة الجوابية لترى المحكمة تقضي بالسقوط.</div>
+      </div>
+    </aside>
+
+    <div id="stage">
+      <div id="world"><svg id="edges"><defs>
+        <marker id="arr" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#c4cde0"/></marker>
+        <marker id="arrOn" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0,0 L10,5 L0,10 z" fill="#4b5bd6"/></marker>
+      </defs></svg></div>
+      <div class="legend" id="legend"></div>
+      <canvas class="mm" id="mm" width="144" height="188"></canvas>
+    </div>
+
+    <div id="calendar"><div class="cal-wrap" id="calWrap"></div></div>
+
+    <aside id="inspector" class="closed">
+      <div class="insp-top"><span class="t">تفاصيل الوكيل</span><button class="iclose" id="iclose">✕</button></div>
+      <div class="insp-body"><div class="insp-empty"><span class="g">👁️</span>انقر أي عقدة لرؤية منهجية الوكيل ونصّه — وتحريره وإعادة التشغيل.</div></div>
+    </aside>
+  </div>
+
+  <div class="modal" id="settingsModal"><div class="sheet">
+    <div class="sheet-h">⚙️ الإعدادات <button class="iclose" id="closeSettings" style="margin-inline-start:auto">✕</button></div>
+    <div class="sheet-b" id="settingsBody"></div>
+    <div class="sheet-f"><button class="run" id="saveSettings">💾 حفظ</button><button class="hbtn" id="resetSettings">استعادة الافتراضي</button></div>
+  </div></div>
+
+<script>
+const $=s=>document.querySelector(s);
+const stage=$('#stage'),world=$('#world'),svg=$('#edges'),insp=$('#inspector'),inspBody=insp.querySelector('.insp-body');
+const statusText=$('#statusText'),dlBanner=$('#dlBanner'),NS='http://www.w3.org/2000/svg';
+let zoom=.9,panX=70,panY=20,nodes=[],edges=[],cur=null,prev=null,selected=null,followActive=true,uid=0,running=false,view='flow',seq=0,stagesSeen=0,total=14;
+let CFG={api_key:'',models:{},prompts:{}},CFG_DEF={models:{},prompts:{},model_suggestions:[]};
+let overrides={},timelineEvents=[];
+const LANE=2100,NW=220,GAP=152,Y0=120;
+const ROLE_HEX={judge:'#bd8a12',defendant:'#0d9488',plaintiff:'#2563eb',expert:'#7c4ddb',appeal:'#c43d63',system:'#5d6678'};
+const NODEROLE={router:'system',intake_register:'system',rejected:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
+const METHOD={router:'يقرأ موضوع الدعوى وقيمتها فيصنّفها ويوجّه المسار.',intake_register:'يدقّق صحيفة الدعوى شكلاً وموضوعاً مقابل الأنظمة.',notify_defendant:'إشعار المدعى عليه وضبط ميعاد الجواب (عبر ناجز).',defendant_plea:'يبني الدفوع الشكلية ثم الموضوعية مستنداً للأنظمة والسوابق.',incidents:'القاضي يفصل في الدفوع الشكلية المثارة (عدم الاختصاص/التقادم) بمنطق الاستدلال نفسه.',incident_ruling:'حكمٌ بقبول دفعٍ قاطعٍ يُنهي الدعوى (عدم اختصاص/سقوط بالتقادم).',plaintiff_plea:'ردّ المدعي على الدفوع وتمسّكه بطلباته.',hearing_manager:'القاضي يقدّر كفاية المرافعة: جولة، أو خبير، أو إقفال.',expert:'خبير محايد يقدّم تقريراً فنياً مسبّباً.',close_pleadings:'قفل باب المرافعة ورفع الدعوى للدراسة والتأمل.',judgment:'محرّك الاستدلال: تحرير ← تكييف ← محل النزاع ← إثبات ← تطبيق ← تسبيب ← مراجعة، مع بوابة تأصيلٍ حابسة.',serve_judgment:'تسليم الحكم وبدء مهلة الاعتراض (٣٠ يوماً).',appeal_brief:'لائحة اعتراض المستأنف.',appellee_response:'ردّ المستأنف ضدّه.',appeal_hearing:'جلسة استئناف للإيضاحات.',appellate_panel:'دائرة ثلاثية: تصويتٌ أعمى ثم مداولة ثم إجماع.',reconsideration:'فحص سبب الالتماس مقابل أسباب المادة ٢٠٠.'};
+const ROLEKEYS=[['قاض','judge'],['دائرة','judge'],['مستأنف ضد','defendant'],['مستأنف','appeal'],['مدعى','defendant'],['خبير','expert'],['ملتمس','appeal'],['مدعي','plaintiff'],['مُسجّل','system'],['محكمة','judge']];
+const roleByActor=a=>{for(const[k,r]of ROLEKEYS)if((a||'').includes(k))return r;return null};
+const escH=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+const applyT=()=>{world.style.transform=`translate(${panX}px,${panY}px) scale(${zoom})`;drawMM()}; applyT();
+// مفتاح الألوان
+$('#legend').innerHTML=[['قاضٍ/دائرة','judge'],['مدعى عليه','defendant'],['مدعٍ','plaintiff'],['خبير','expert'],['استئناف/التماس','appeal'],['إجراء','system']].map(([t,r])=>`<div class="lg"><span class="lgd" style="background:${ROLE_HEX[r]}"></span>${t}</div>`).join('');
+
+const PRESETS={
+  commercial:{subject:'مطالبة بثمن بضاعة بموجب عقد توريد',value:250000,filing:'2026-01-15',plaintiff:'شركة التوريدات',defendant:'شركة المقاولات',claim:'يطالب المدعي المدعى عليه بسداد 250,000 ريال ثمن بضاعة وُرّدت بموجب عقد توريد موقّع، لامتناعه عن الدفع رغم الإنذار.',reply:'الاختصاص منعقد، ومحاضر الاستلام تثبت المطابقة، وأتمسّك بطلباتي.',appeal:true,training:false,recon:false},
+  prescription:{subject:'مطالبة مالية قديمة',value:80000,filing:'2026-03-01',plaintiff:'خالد',defendant:'ماجد',claim:'يطالب المدعي بمبلغ 80,000 ريال عن معاملةٍ قديمة.',reply:'أتمسّك بطلبي.',appeal:false,training:false,recon:false,defenseOverride:'المذكرة الجوابية: أدفع بأن الدعوى سقطت بالتقادم لمضي المدة النظامية دون مطالبة، وأطلب الحكم بعدم سماعها.'},
+  training:{subject:'مطالبة بمبلغ قرض',value:20000,filing:'2026-02-01',plaintiff:'فهد',defendant:'سالم',claim:'يطالب المدعي المدعى عليه بسداد قرضٍ قدره 20,000 ريال.',reply:'أتمسّك بطلبي.',appeal:false,training:true,recon:true}
+};
+function fillForm(p){$('#f_subject').value=p.subject;$('#f_value').value=p.value;$('#f_filing').value=p.filing;$('#f_plaintiff').value=p.plaintiff;$('#f_defendant').value=p.defendant;$('#f_claim').value=p.claim;$('#f_reply').value=p.reply;$('#f_appeal').checked=p.appeal;$('#f_training').checked=p.training;$('#f_recon').checked=p.recon;overrides={};if(p.defenseOverride)overrides['defendant_plea-1']=p.defenseOverride;}
+fillForm(PRESETS.commercial);
+document.querySelectorAll('.preset[data-preset]').forEach(b=>b.onclick=()=>fillForm(PRESETS[b.dataset.preset]));
+$('#clearOv').onclick=()=>{overrides={};statusText.textContent='مُسحت التعديلات. شغّل من جديد.'};
+
+/* تبديل العرض */
+function setView(v){view=v;document.querySelectorAll('.segb').forEach(b=>b.classList.toggle('on',b.dataset.view===v));stage.classList.toggle('hide',v!=='flow');$('#calendar').classList.toggle('show',v==='calendar');if(v==='calendar')renderCalendar()}
+document.querySelectorAll('.segb').forEach(b=>b.onclick=()=>setView(b.dataset.view));
+
+/* تنقّل/تكبير/سحب */
+let panning=false,ps=null;
+stage.addEventListener('pointerdown',e=>{if(e.target.closest('.node'))return;panning=true;world.classList.remove('anim');ps={x:e.clientX-panX,y:e.clientY-panY};stage.classList.add('grabbing');try{stage.setPointerCapture(e.pointerId)}catch(_){}});
+stage.addEventListener('pointermove',e=>{if(!panning)return;panX=e.clientX-ps.x;panY=e.clientY-ps.y;applyT()});
+stage.addEventListener('pointerup',()=>{panning=false;stage.classList.remove('grabbing')});
+stage.addEventListener('wheel',e=>{e.preventDefault();const r=stage.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,f=e.deltaY<0?1.1:1/1.1,nz=Math.min(1.8,Math.max(.28,zoom*f)),wx=(mx-panX)/zoom,wy=(my-panY)/zoom;zoom=nz;panX=mx-wx*zoom;panY=my-wy*zoom;world.classList.remove('anim');applyT()},{passive:false});
+$('#zin').onclick=()=>zb(1.18);$('#zout').onclick=()=>zb(1/1.18);$('#zfit').onclick=fit;
+function zb(f){const r=stage.getBoundingClientRect(),mx=r.width/2,my=r.height/2,nz=Math.min(1.8,Math.max(.28,zoom*f)),wx=(mx-panX)/zoom,wy=(my-panY)/zoom;zoom=nz;panX=mx-wx*zoom;panY=my-wy*zoom;world.classList.add('anim');applyT()}
+function fit(){if(!nodes.length)return;const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),mnX=Math.min(...xs),mxX=Math.max(...xs)+NW,mnY=Math.min(...ys),mxY=Math.max(...ys)+130,r=stage.getBoundingClientRect(),z=Math.min(1.1,(r.width-80)/(mxX-mnX),(r.height-80)/(mxY-mnY));zoom=Math.max(.28,z);panX=(r.width-(mxX-mnX)*zoom)/2-mnX*zoom;panY=(r.height-(mxY-mnY)*zoom)/2-mnY*zoom;world.classList.add('anim');applyT()}
+function panTo(n){const r=stage.getBoundingClientRect();panX=r.width/2-(n.x+NW/2)*zoom;panY=r.height*0.4-(n.y+44)*zoom;world.classList.add('anim');applyT()}
+
+/* خريطة مصغّرة */
+function drawMM(){const c=$('#mm');if(!c)return;const ctx=c.getContext('2d');ctx.clearRect(0,0,c.width,c.height);if(!nodes.length)return;
+  const xs=nodes.map(n=>n.x),ys=nodes.map(n=>n.y),mnX=Math.min(...xs)-50,mxX=Math.max(...xs)+NW+50,mnY=Math.min(...ys)-50,mxY=Math.max(...ys)+150;
+  const s=Math.min(c.width/(mxX-mnX),c.height/(mxY-mnY));
+  nodes.forEach(n=>{ctx.fillStyle=ROLE_HEX[n.role]||'#888';ctx.fillRect((n.x-mnX)*s,(n.y-mnY)*s,Math.max(4,NW*s),Math.max(3,40*s))});
+  const r=stage.getBoundingClientRect();ctx.strokeStyle='#4b5bd6';ctx.lineWidth=1.4;ctx.strokeRect((-panX/zoom-mnX)*s,(-panY/zoom-mnY)*s,(r.width/zoom)*s,(r.height/zoom)*s)}
+
+/* العقد والحوافّ */
+function drawLanes(){[['المدعى عليه','defendant',-(NW+64)],['المحكمة','system',0],['المدعي','plaintiff',(NW+64)]].forEach(([t,role,off])=>{const el=document.createElement('div');el.className='lane-h';el.style.left=(LANE+off-NW/2)+'px';el.style.top='44px';el.style.width=NW+'px';el.innerHTML=`<span class="lane-dot" style="background:${ROLE_HEX[role]}"></span>${t}`;world.appendChild(el)})}
+function makeNode(node,label,icon,date){
+  finalizePrev();const role=NODEROLE[node]||'system';
+  const off=role==='plaintiff'?(NW+64):role==='defendant'?-(NW+64):0;  // مساران متوازيان حول محور المحكمة
+  const x=LANE+off-NW/2,y=Y0+seq*GAP;seq++;
+  const el=document.createElement('div');el.className='node active role-'+role;el.style.left=x+'px';el.style.top=y+'px';
+  el.innerHTML=`<div class="accent"></div><div class="node-row"><span class="nic">${icon||'•'}</span><div class="nmeta"><div class="nstage">${escH(label)}</div><div class="nactor">—</div></div><span class="nstat"></span></div><div class="ndate">${date&&date.hijri?('📅 '+escH(date.hijri)):''}</div>`;
+  el.querySelector('.node-row').addEventListener('pointerdown',ev=>ev.stopPropagation());world.appendChild(el);
+  const n={id:++uid,node,label,icon,role,x,y,el,date,data:{actor:'',model:'',logs:[],document:null,ruling:null,panel:null,outcome:null}};
+  nodes.push(n);makeDraggable(n);
+  if(prev){const p=document.createElementNS(NS,'path');p.setAttribute('class','edge on');svg.appendChild(p);const e2={a:prev,b:n,el:p};edges.push(e2);drawEdge(e2);edges.forEach(ed=>{if(ed!==e2)ed.el.classList.remove('on')})}
+  prev=n;drawMM();return n;
+}
+function drawEdge(ed){const a=ed.a,b=ed.b,x1=a.x+NW/2,y1=a.y+a.el.offsetHeight,x2=b.x+NW/2,y2=b.y-8,m=(y2-y1)/2;ed.el.setAttribute('d',`M ${x1} ${y1} C ${x1} ${y1+m} ${x2} ${y2-m} ${x2} ${y2}`)}
+function updEdges(n){edges.forEach(ed=>{if(ed.a===n||ed.b===n)drawEdge(ed)});drawMM()}
+function makeDraggable(n){const el=n.el;let dr=false,mv=false,st=null;
+  el.addEventListener('pointerdown',e=>{e.stopPropagation();dr=true;mv=false;world.classList.remove('anim');st={x:e.clientX,y:e.clientY,nx:n.x,ny:n.y};try{el.setPointerCapture(e.pointerId)}catch(_){}; el.classList.add('dragging')});
+  el.addEventListener('pointermove',e=>{if(!dr)return;const dx=(e.clientX-st.x)/zoom,dy=(e.clientY-st.y)/zoom;if(Math.abs(e.clientX-st.x)+Math.abs(e.clientY-st.y)>4)mv=true;n.x=st.nx+dx;n.y=st.ny+dy;n.el.style.left=n.x+'px';n.el.style.top=n.y+'px';updEdges(n)});
+  el.addEventListener('pointerup',()=>{dr=false;el.classList.remove('dragging');if(!mv){followActive=false;selectNode(n)}});
+}
+function makeChild(parent,lens,vote,i,total){
+  const vc=vote==='تأييد'?'#0e7a52':vote==='إلغاء'?'#b23a5b':'#9a7b1b';
+  const cw=118,spread=(i-(total-1)/2)*(cw+18),x=parent.x+NW/2-cw/2+spread,y=parent.y+parent.el.offsetHeight+48;
+  const el=document.createElement('div');el.className='node sub role-judge';el.style.left=x+'px';el.style.top=y+'px';
+  el.innerHTML=`<div class="accent"></div><div style="padding:9px 7px;text-align:center"><div style="font-size:10px;color:var(--muted);line-height:1.3">${escH(lens)}</div><div style="font-weight:800;margin-top:5px;color:${vc}">${escH(vote)}</div></div>`;
+  el.addEventListener('pointerdown',e=>e.stopPropagation());world.appendChild(el);
+  const n={id:++uid,node:'panel_judge',label:`قاضٍ — ${lens}`,icon:'👨‍⚖️',role:'judge',x,y,el,date:parent.date,
+           data:{actor:'عضو دائرة الاستئناف',logs:[{action:'الرأي',detail:vote}]}};
+  nodes.push(n);makeDraggable(n);
+  const p=document.createElementNS(NS,'path');p.setAttribute('class','edge');svg.appendChild(p);
+  const e2={a:parent,b:n,el:p};edges.push(e2);drawEdge(e2);drawMM();
+}
+function setActive(n){nodes.forEach(o=>o.el.classList.remove('active'));if(cur)finalizePrev();cur=n;n.el.classList.add('active')}
+function finalizePrev(){if(cur){cur.el.classList.remove('active');cur.el.classList.add('done')}}
+
+/* المفتّش */
+function cites(cs){return(cs&&cs.length)?`<div class="cites">${cs.map(c=>`<span class="chip">📎 ${escH(c.claim)} ⟵ ${escH(c.tool)}${c.ref?(' — '+escH(c.ref)):''}</span>`).join('')}</div>`:''}
+function selectNode(n){selected=n;nodes.forEach(o=>o.el.classList.toggle('sel',o===n));insp.classList.remove('closed');renderInspector(n);inspBody.classList.remove('enter');void inspBody.offsetWidth;inspBody.classList.add('enter')}
+function confCls(c){return c==='عالية'?'hi':c==='متوسطة'?'mid':c==='محجوب'?'blk':'lo'}
+function renderInspector(n){const d=n.data;
+  let h=`<div class="ihead role-${n.role}"><span class="nic">${n.icon}</span><div><div class="istage">${escH(n.label)}</div><div class="iactor">${escH(d.actor||'—')}${d.model?(' · '+escH(d.model)):''}</div></div></div>`;
+  if(n.date&&n.date.greg)h+=`<div class="idate">📅 ${escH(n.date.hijri||'')}${n.date.greg?(' — '+escH(n.date.greg)+'م'):''}</div>`;
+  if(METHOD[n.node])h+=`<div class="method"><b>منهجية الوكيل:</b> ${escH(METHOD[n.node])}</div>`;
+  (d.logs||[]).forEach(l=>{if(l.detail)h+=`<div class="note"><b>${escH(l.action)}</b> · ${escH(l.detail)}</div>`});
+  if(d.document){const doc=d.document;h+=`<div class="sec"><span class="seclbl">${escH(doc.kind)} — نصّ الوكيل ${doc.overridden?'<span class="ovbadge">📝 من المستخدم</span>':''}</span><textarea class="edit" id="editbox">${escH(doc.body)}</textarea><button class="save" id="saveBtn">💾 احفظ النص وأعد التشغيل</button></div>${cites(doc.citations)}`}
+  if(d.ruling){const r=d.ruling,b=r.appealable===false?`<span class="badge no">نهائي — ${escH(r.route)}</span>`:`<span class="badge yes">قابل للاستئناف — ${escH(r.route)}</span>`;
+    h+=`<div class="sec"><span class="seclbl">${escH(r.kind)} <span class="conf ${confCls(r.confidence)}">الثقة: ${escH(r.confidence||'—')}</span></span>`;
+    if(r.blocked)h+=`<div class="flagbox bad">⛔ حُجِب النطق: حكمٌ مبنيٌّ على إسنادٍ مختلق أو مخالفةٍ جوهرية — لا يُعتدّ به.</div>`;
+    if(r.chain&&r.chain.length)h+=`<div class="chain">${r.chain.map(c=>`<div class="op"><span class="${c.ok?'ok':'bd'}">${c.ok?'✓':'⚠'}</span><span class="nm">${escH(c.label)}</span>${c.issues&&c.issues.length?`<span class="bd" style="font-size:11px">${escH(c.issues[0])}</span>`:''}</div>`).join('')}</div>`;
+    h+=`<div class="rsec"><h4>الوقائع</h4><p>${escH(r.facts)}</p></div><div class="rsec"><h4>الأسباب</h4><p>${escH(r.reasons)}</p></div><div class="rsec op"><h4>المنطوق</h4><p>${escH(r.operative)}</p></div>${b}`;
+    (r.flags||[]).forEach(f=>h+=`<div class="flagbox ${f.includes('⛔')?'bad':'warn'}">${escH(f)}</div>`);h+=`</div>${cites(r.citations)}`}
+  if(d.panel){const vc=v=>v==='تأييد'?'v-up':v==='إلغاء'?'v-rev':'v-mod';const cnt={};d.panel.votes.forEach(v=>cnt[v.vote]=(cnt[v.vote]||0)+1);let cons='تأييد',bs=-1;for(const k in cnt)if(cnt[k]>bs||(cnt[k]===bs&&k==='تأييد')){bs=cnt[k];cons=k}
+    h+=`<div class="sec"><span class="seclbl">تصويت الدائرة (عمياء ثمّ مداولة)</span><div class="judges">${d.panel.votes.map(v=>`<div class="jcard"><div class="jlens">${escH(v.lens)}</div><div class="jvote ${vc(v.vote)}">${escH(v.vote)}</div></div>`).join('')}</div><div class="cons">⚖️ الإجماع: ${cons}</div></div>`}
+  if(d.outcome){const ok=String(d.outcome).includes('أصاب');h+=`<div class="sec out ${ok?'ok':'bad'}"><div class="big">${ok?'✅':'⚠️'}</div><span class="seclbl" style="justify-content:center">نتيجة التماس إعادة النظر (م.٢٠٠)</span><p>${escH(d.outcome)}</p></div>`}
+  inspBody.innerHTML=h;const sb=inspBody.querySelector('#saveBtn');
+  if(sb&&d.document)sb.onclick=()=>{overrides[d.document.node_key]=inspBody.querySelector('#editbox').value;statusText.innerHTML=`📝 حُفظ نصّك لـ«${escH(d.document.kind)}» — يُعاد التشغيل…`;runSim()};
+}
+$('#iclose').onclick=()=>{insp.classList.add('closed');selected=null;nodes.forEach(o=>o.el.classList.remove('sel'))};
+$('#cpToggle').onclick=()=>$('#casePanel').classList.toggle('closed');
+
+/* التقويم */
+function monthKey(h){const m=(h||'').match(/^\d+\s+(.+)$/);return m?m[1]:(h||'بلا تاريخ')}
+function renderCalendar(){const w=$('#calWrap');if(!timelineEvents.length){w.innerHTML='<div class="cal-empty">شغّل المحاكاة لرؤية تقويم الإجراءات الزمني.</div>';return}
+  let h='',cm=null;timelineEvents.forEach((e,idx)=>{const mk=monthKey(e.date&&e.date.hijri);if(mk!==cm){cm=mk;h+=`<div class="cal-month">${escH(mk)}</div>`}
+    const role=e.deadline?'appeal':(NODEROLE[e.node]||'system');
+    h+=`<div class="cal-row ${e.deadline?'dl':''}" ${e.ref?`data-idx="${idx}"`:''}><div class="cal-date"><div class="cal-hijri">${escH((e.date&&e.date.hijri||'').replace(/\s\S+$/,''))||'—'}</div><div class="cal-greg">${escH(e.date&&e.date.greg||'')}</div></div><div class="cal-line" style="background:${ROLE_HEX[role]}"></div><div class="cal-ev"><span class="cal-ic">${e.icon||'•'}</span> ${escH(e.label)}${e.ref?'<span style="margin-inline-start:auto;font-size:11px;color:var(--muted)">للتفاصيل ›</span>':''}${e.deadline?'<span class="cal-dlbadge">مهلة</span>':''}</div></div>`});
+  w.innerHTML=h;
+  w.querySelectorAll('.cal-row[data-idx]').forEach(row=>row.onclick=()=>{const e=timelineEvents[+row.dataset.idx];if(e&&e.ref)selectNode(e.ref)});}
+
+/* الأحداث */
+function applyActor(n){const r=roleByActor(n.data.actor);if(r){n.role=r;n.el.className=n.el.className.replace(/role-\w+/,'role-'+r)}n.el.querySelector('.nactor').textContent=n.data.actor+(n.data.model?(' · '+n.data.model):'')}
+function refresh(n){updEdges(n);if(selected===n)renderInspector(n)}
+function markOvr(n){if(n.data.document&&n.data.document.overridden){const dt=n.el.querySelector('.ndate');if(dt&&!dt.querySelector('.novr'))dt.insertAdjacentHTML('beforeend','<span class="novr">📝 معدّل</span>')}}
+function handle(ev){switch(ev.type){
+  case 'start': nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=selected=null;seq=0;followActive=true;timelineEvents=[];insp.classList.add('closed');dlBanner.style.display='none';world.querySelectorAll('.lane-h').forEach(e=>e.remove());drawLanes();drawMM();stagesSeen=0;total=(ev.rail||[]).length||14;$('#progbar').style.width='0%';$('#busy').style.display='';
+    statusText.innerHTML=`بدأت — <b>${escH(ev.case_id)}</b> · القيد ${escH((ev.filing||{}).hijri||'')} · ${ev.mock?'وهمي':'حقيقي'}`;break;
+  case 'stage':{const n=makeNode(ev.node,ev.label,ev.icon,ev.date);setActive(n);if(view==='flow')panTo(n);if(followActive)selectNode(n);timelineEvents.push({label:ev.label,icon:ev.icon,node:ev.node,date:ev.date,ref:n});if(view==='calendar')renderCalendar();stagesSeen++;$('#progbar').style.width=Math.min(100,Math.round(stagesSeen/total*100))+'%';statusText.innerHTML=`الآن: <b>${escH(ev.label)}</b>${ev.date&&ev.date.hijri?(' · '+escH(ev.date.hijri)):''}`;break}
+  case 'log': if(cur){cur.data.actor=ev.actor||cur.data.actor;if(ev.model)cur.data.model=ev.model;cur.data.logs.push({action:ev.action,detail:ev.detail});applyActor(cur);if(selected===cur)renderInspector(cur)}break;
+  case 'document': if(cur){cur.data.document=ev;if(ev.actor){cur.data.actor=ev.actor;applyActor(cur)}markOvr(cur);refresh(cur)}break;
+  case 'ruling': if(cur){cur.data.ruling=ev;refresh(cur)}break;
+  case 'panel': if(cur){cur.data.panel=ev;cur.data.actor='دائرة الاستئناف';applyActor(cur);refresh(cur);const P=cur,vs=ev.votes||[];vs.forEach((v,i)=>makeChild(P,v.lens,v.vote,i,vs.length))}break;
+  case 'outcome': if(cur){cur.data.outcome=ev.text;refresh(cur)}break;
+  case 'deadline': dlBanner.style.display='';dlBanner.innerHTML=`⏳ ${escH(ev.label)}: <b>${escH((ev.date||{}).hijri||'')}</b>`;timelineEvents.push({label:ev.label,icon:'⏳',node:'',date:ev.date,deadline:true});if(view==='calendar')renderCalendar();break;
+  case 'error':{const n=makeNode('rejected','خطأ في التشغيل','⚠️');setActive(n);n.data.document={kind:'خطأ',body:ev.message,node_key:'',citations:[]};selectNode(n);break}
+  case 'done': finalizePrev();statusText.innerHTML='✔ انتهت الجلسة — انقر عقدة لتحرير نصّها وإعادة التشغيل، أو افتح 📅 التقويم.';$('#progbar').style.width='100%';$('#busy').style.display='none';running=false;$('#run').disabled=false;break;
+}}
+
+/* البثّ عبر POST */
+async function streamRun(body){const resp=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const reader=resp.body.getReader(),dec=new TextDecoder();let buf='';
+  while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{handle(JSON.parse(line.slice(5).trim()))}catch(e){console.error(e)}}}}}
+function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0.12:0.45,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,prompts:CFG.prompts}}}
+async function runSim(){if(running)return;running=true;$('#run').disabled=true;if(view!=='flow')setView('flow');nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=null;seq=0;
+  try{await streamRun(caseBody())}catch(e){statusText.textContent='تعذّر الاتصال بالخادم';$('#busy').style.display='none';running=false;$('#run').disabled=false}}
+$('#run').onclick=runSim;
+
+/* ===== الإعدادات (مفتاح OpenAI + النماذج + مطالبات النظام) ===== */
+async function loadConfig(){try{CFG_DEF=await(await fetch('/api/config')).json();}catch(e){}
+  CFG.models={...(CFG_DEF.models||{})};CFG.prompts={...(CFG_DEF.prompts||{})};
+  try{const s=JSON.parse(localStorage.getItem('bayyin_cfg')||'null');if(s){CFG.api_key=s.api_key||'';Object.assign(CFG.models,s.models||{});Object.assign(CFG.prompts,s.prompts||{})}}catch(e){}}
+function modelOpts(cur){const seen=new Set();const out=[];[cur,...(CFG_DEF.model_suggestions||[])].forEach(m=>{if(m&&!seen.has(m)){seen.add(m);out.push(m)}});return out;}
+function buildSettings(){const b=$('#settingsBody');
+  let h=`<div class="sheet-sec">🔑 مفتاح OpenAI</div><div class="keyhint">يُترك فارغاً لاستخدام مفتاح الخادم (.env). يُحفظ في متصفّحك فقط، ولا يُخزَّن على الخادم.</div><div class="fld"><input id="set_key" type="password" placeholder="sk-... (اختياري)" value="${escH(CFG.api_key)}"></div><div class="sheet-sec">🧠 النماذج لكل طبقة</div>`;
+  [['router','الموجِّه السريع'],['standard','الوكلاء القياسيون'],['pro','المتقدّم'],['judge','القاضي (الاستدلال والدفوع)']].forEach(([k,t])=>{
+    const cur=CFG.models[k]||(CFG_DEF.models||{})[k]||'';
+    h+=`<div class="fld"><label>${escH(t)}</label><select id="set_m_${k}">${modelOpts(cur).map(m=>`<option value="${escH(m)}"${m===cur?' selected':''}>${escH(m)}</option>`).join('')}<option value="__custom__">➕ نموذج مخصّص…</option></select><input class="mcustom" id="set_mc_${k}" placeholder="اكتب معرّف النموذج" style="display:none"></div>`;
+  });
+  h+=`<div class="sheet-sec">📜 مطالبات النظام (قابلة للتعديل)</div>`;
+  Object.keys(CFG.prompts).forEach(k=>h+=`<details class="set-acc" open><summary>${escH(k)}</summary><textarea data-pk="${escH(k)}">${escH(CFG.prompts[k])}</textarea></details>`);
+  b.innerHTML=h;
+  b.querySelectorAll('select[id^="set_m_"]').forEach(s=>s.onchange=()=>{const ci=$('#set_mc_'+s.id.slice(6));if(!ci)return;if(s.value==='__custom__'){ci.style.display='';ci.focus()}else{ci.style.display='none'}});}
+function saveSettings(){CFG.api_key=($('#set_key').value||'').trim();
+  ['router','standard','pro','judge'].forEach(k=>{const sel=$('#set_m_'+k);let v=sel?sel.value:'';if(v==='__custom__')v=($('#set_mc_'+k).value||'').trim();CFG.models[k]=(v||'').trim()||(CFG_DEF.models||{})[k]});
+  $('#settingsBody').querySelectorAll('textarea[data-pk]').forEach(t=>CFG.prompts[t.dataset.pk]=t.value);
+  localStorage.setItem('bayyin_cfg',JSON.stringify(CFG));$('#settingsModal').classList.remove('open');statusText.textContent='✔ حُفظت الإعدادات — تُطبَّق في التشغيل القادم.';}
+function resetSettings(){CFG.api_key='';CFG.models={...(CFG_DEF.models||{})};CFG.prompts={...(CFG_DEF.prompts||{})};localStorage.removeItem('bayyin_cfg');buildSettings();}
+$('#openSettings').onclick=async()=>{if(!Object.keys(CFG.prompts||{}).length||!Object.keys(CFG.models||{}).length)await loadConfig();buildSettings();$('#settingsModal').classList.add('open')};
+$('#closeSettings').onclick=()=>$('#settingsModal').classList.remove('open');
+$('#settingsModal').onclick=e=>{if(e.target.id==='settingsModal')e.currentTarget.classList.remove('open')};
+$('#saveSettings').onclick=saveSettings;$('#resetSettings').onclick=resetSettings;
+loadConfig();
+</script>
+</body>
+</html>
