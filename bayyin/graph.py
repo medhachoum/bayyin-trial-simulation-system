@@ -41,6 +41,8 @@ def build_graph(checkpointer=None):
     g.add_node("router", nodes.router_node)
     g.add_node("intake_register", nodes.intake_register_node)
     g.add_node("rejected", nodes.rejected_node)
+    g.add_node("referred", nodes.referred_node)
+    g.add_node("research", nodes.research_node)
     g.add_node("notify_defendant", nodes.notify_defendant_node)
     g.add_node("defendant_plea", nodes.defendant_plea_node)
     g.add_node("incidents", nodes.incidents_node)
@@ -61,8 +63,10 @@ def build_graph(checkpointer=None):
     g.add_edge(START, "router")
     g.add_edge("router", "intake_register")
     g.add_conditional_edges("intake_register", nodes.route_after_intake,
-                            {"notify_defendant": "notify_defendant", "rejected": "rejected"})
+                            {"research": "research", "rejected": "rejected", "referred": "referred"})
     g.add_edge("rejected", END)
+    g.add_edge("referred", END)
+    g.add_edge("research", "notify_defendant")
     g.add_edge("notify_defendant", "defendant_plea")
     g.add_edge("defendant_plea", "incidents")
     g.add_conditional_edges("incidents", nodes.route_after_incidents,

@@ -8,6 +8,8 @@
 """
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+
 from . import prompts, rules, settings
 from .audit import event
 from .llm import get_llm
@@ -31,7 +33,7 @@ def _vote(llm, state: CaseState, lens: str, peers: list[str] | None = None) -> d
     user = _panel_user(state, lens, peers)
     res = llm.complete(
         model=settings.GPT_PRO, system=prompts.APPEAL_JUDGE.format(lens=lens),
-        user=user, tools=tools_for("search_saudi_codes", "search_commercial_precedents"),
+        user=user, tools=tools_for("search_saudi_codes", "search_commercial_principles"),
         schema=VOTE_SCHEMA, role="panel",
     )
     d = res.get("data") or {"vote": "تأييد", "opinion": ""}
@@ -42,15 +44,20 @@ def run_panel(state: CaseState) -> dict:
     """يشغّل الدائرة ويُرجع تحديث الحالة (الحكم النهائي + أصوات + تدقيق)."""
     llm = get_llm()
 
-    # 1) جولة عمياء — كل قاضٍ مستقل.
-    blind = [_vote(llm, state, lens) for lens in LENSES]
+    # 1) جولة عمياء — كل قاضٍ مستقل (الأصوات الثلاثة متوازية).
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        blind = list(ex.map(lambda lens: _vote(llm, state, lens), LENSES))
 
-    # 2) مداولة — يرى كلٌّ آراء زملائه مجهّلةً ويعيد النظر.
+    # 2) مداولة — يرى كلٌّ آراء زملائه مجهّلةً ويعيد النظر (الثلاثة متوازية أيضاً).
     anon = [f"رأي عضو ({b['lens']}): {b['vote']} — {b['opinion']}" for b in blind]
-    deliberated = []
-    for i, lens in enumerate(LENSES):
+
+    def _delib(i_lens):
+        i, lens = i_lens
         peers = [a for j, a in enumerate(anon) if j != i]
-        deliberated.append(_vote(llm, state, lens, peers))
+        return _vote(llm, state, lens, peers)
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        deliberated = list(ex.map(_delib, list(enumerate(LENSES))))
 
     votes = [d["vote"] for d in deliberated]
     consensus = rules.panel_consensus(votes)

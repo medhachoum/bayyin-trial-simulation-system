@@ -24,7 +24,8 @@ def _is_valid_tool(tool: str) -> bool:
 
 def _is_statute_or_precedent(tool: str) -> bool:
     return tool.startswith("file_search") or tool in {
-        "search_saudi_codes", "search_commercial_precedents"}
+        "search_saudi_codes", "search_commercial_principles",
+        "search_commercial_precedents_1", "search_commercial_precedents_2"}
 
 
 @dataclass

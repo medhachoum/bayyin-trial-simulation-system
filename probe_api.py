@@ -19,7 +19,7 @@ try:
         model=settings.GPT_ROUTER,  # mini لتوفير التكلفة في المسبار
         system=prompts.DEFENDANT,
         user="دعوى تجارية: مطالبة بثمن بضاعة 250000 ريال بموجب عقد توريد. اكتب مذكرة جوابية موجزة.",
-        tools=tools_for("search_saudi_codes", "search_commercial_precedents"),
+        tools=tools_for("search_saudi_codes", "search_commercial_principles"),
         schema=DEFENSE_SCHEMA, role="defendant",
     )
     data = res.get("data")

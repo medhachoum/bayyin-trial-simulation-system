@@ -7,7 +7,11 @@
 """
 from __future__ import annotations
 
+import hashlib
 import json
+import os
+import tempfile
+from pathlib import Path
 
 from . import settings
 
@@ -27,6 +31,27 @@ def _extract_sources(resp) -> list[str]:
     return sources
 
 
+def _extract_evidence(resp) -> list[str]:
+    """استخراج نصوص المقاطع المُسترجَعة فعلاً من file_search — تُحقَّق بها اقتباسات
+    المبادئ/السوابق ضد الاسترجاع الحقيقي (سدّ ثغرة اختلاق الاقتباس)."""
+    out: list[str] = []
+    try:
+        for item in getattr(resp, "output", []) or []:
+            if getattr(item, "type", "") == "file_search_call":
+                for r in getattr(item, "results", []) or []:
+                    txt = getattr(r, "text", None)
+                    if not txt:
+                        content = getattr(r, "content", None) or []
+                        parts = [getattr(p, "text", None) or (p.get("text") if isinstance(p, dict) else None)
+                                 for p in content]
+                        txt = " ".join(p for p in parts if p)
+                    if txt:
+                        out.append(str(txt))
+    except Exception:
+        pass
+    return out
+
+
 # ===========================================================================
 # التنفيذ الحقيقي عبر Responses API
 # ===========================================================================
@@ -44,10 +69,12 @@ class OpenAILLM:
 
     def complete(self, *, model: str, system: str, user: str,
                  tools: list[dict] | None = None, schema: dict | None = None,
-                 role: str | None = None) -> dict:
+                 role: str | None = None, effort: str | None = None) -> dict:
         kwargs: dict = {"model": model, "instructions": system, "input": user}
         if tools:
             kwargs["tools"] = tools
+        if effort:  # جهد الاستدلال (للنماذج الاستدلالية كـ gpt-5.5)
+            kwargs["reasoning"] = {"effort": effort}
         if schema is not None:
             # مخرَج JSON منظَّم صارم (structured outputs)
             kwargs["text"] = {
@@ -66,7 +93,8 @@ class OpenAILLM:
                 data = json.loads(text)
             except json.JSONDecodeError:
                 data = None
-        return {"text": text, "data": data, "sources": _extract_sources(resp)}
+        return {"text": text, "data": data, "sources": _extract_sources(resp),
+                "evidence": _extract_evidence(resp)}
 
 
 # ===========================================================================
@@ -106,8 +134,8 @@ def _mock_defendant(user: str) -> dict:
         },
         {
             "claim": "ربط استحقاق الثمن بمطابقة المواصفات",
-            "source_tool": "search_commercial_precedents",
-            "source_ref": "سابقة تجارية — أثر مخالفة المواصفات على الثمن",
+            "source_tool": "search_commercial_principles",
+            "source_ref": "مبدأ تجاري — أثر مخالفة المواصفات على الثمن",
             "quote": "للمشتري حبس ما يقابل العيب من الثمن عند مخالفة المواصفات.",
         },
     ]
@@ -140,8 +168,8 @@ def _mock_judge(_user: str) -> dict:
             },
             {
                 "claim": "عبء إثبات مخالفة المواصفات على المدعى عليه",
-                "source_tool": "search_commercial_precedents",
-                "source_ref": "سابقة تجارية — عبء إثبات العيب",
+                "source_tool": "search_commercial_principles",
+                "source_ref": "مبدأ تجاري — عبء إثبات العيب",
                 "quote": "البيّنة على من ادّعى خلاف الأصل.",
             },
         ],
@@ -240,6 +268,31 @@ def _mock_op_tasbib(user):
             {"system": "نظام المحاكم التجارية", "article": "16", "quote": "المنازعات بين التجار", "claim": "الاختصاص النوعي"}]}}
 
 
+def _mock_research_principles(_u):
+    return {"text": "", "data": {"principles": [
+        {"principle": "استحقاق البائع للثمن يقابله التزامه بالمطابقة؛ وللمشتري حبس ما يقابل العيب من الثمن.",
+         "ref": "مبدأ تجاري — مطابقة المبيع والثمن",
+         "quote": "للمشتري حبس ما يقابل العيب من الثمن عند مخالفة المواصفات",
+         "relevance": "صلب النزاع: مطالبة بثمن توريد يقابلها دفعٌ بمخالفة المواصفات."},
+        {"principle": "الاختصاص النوعي للمحكمة التجارية في منازعات التجار بسبب أعمالهم التجارية.",
+         "ref": "مبدأ تجاري — الاختصاص النوعي",
+         "quote": "تختص المحكمة التجارية بالمنازعات بين التجار بسبب أعمالهم التجارية",
+         "relevance": "يردّ الدفع بعدم الاختصاص."}],
+        "note": "مبادئ مستخلصة من قاعدة المبادئ التجارية، مطابقةٌ لوقائع النزاع."}}
+
+
+def _mock_research_precedents(_u):
+    return {"text": "", "data": {"precedents": [
+        {"summary": "مطالبة بثمن بضاعةٍ وُرّدت بموجب عقد توريد، ودفع المشتري بعيوبٍ في المواصفات.",
+         "holding": "إلزام المشتري بالثمن لثبوت التسليم وعجزه عن إثبات العيب المؤثّر.",
+         "outcome": "للمدعي", "ref": "سابقة تجارية — توريد/مطابقة"},
+        {"summary": "نزاع توريدٍ مع نقصٍ يسيرٍ في الكمية المستلمة.",
+         "holding": "خصمٌ محدودٌ مقابل النقص مع استحقاق باقي الثمن.",
+         "outcome": "مختلط", "ref": "سابقة تجارية — نقص الكمية"}],
+        "outcome_signal": "للمدعي",
+        "note": "سوابق استئناسيةٌ مشابهةٌ للوقائع، لا تقيّد القاضي."}}
+
+
 def _mock_incident_jurisdiction(_u):
     return {"text": "", "data": {"upheld": False,
         "operative": "رفض الدفع بعدم الاختصاص لانعقاد الاختصاص النوعي للدائرة التجارية.",
@@ -270,6 +323,8 @@ def _mock_incident_incidental(_u):
 
 _MOCKS = {
     "router": _mock_router,
+    "research_principles": _mock_research_principles,
+    "research_precedents": _mock_research_precedents,
     "incident_jurisdiction": _mock_incident_jurisdiction,
     "incident_prescription": _mock_incident_prescription,
     "incident_inadmissibility": _mock_incident_inadmissibility,
@@ -292,13 +347,59 @@ _MOCKS = {
 class MockLLM:
     def complete(self, *, model: str, system: str, user: str,
                  tools: list[dict] | None = None, schema: dict | None = None,
-                 role: str | None = None) -> dict:
+                 role: str | None = None, effort: str | None = None) -> dict:
         builder = _MOCKS.get(role or "", lambda u: {"text": "—", "data": None})
         out = builder(user)
         out.setdefault("sources", [])
+        out.setdefault("evidence", [])
         return out
 
 
+# ===========================================================================
+# تخزينٌ محتوى-معنوَن (incremental) — يجعل تعديل عقدةٍ وإعادةَ التشغيل يُعيد حساب
+# العُقَد المتأثّرة فقط؛ فما لم تتغيّر مدخلاته (model+system+user+tools+schema) يعود
+# فورياً من القرص بلا نداءٍ ولا تكلفة. يُغلَّف به الحقيقيُّ فقط (لا الوهمي).
+# ===========================================================================
+_CACHE_DIR = Path(os.getenv("BAYYIN_CACHE_DIR") or (Path(tempfile.gettempdir()) / "bayyin_llm_cache"))
+
+
+def _cache_key(model, system, user, tools, schema, role, effort) -> str:
+    payload = json.dumps({"m": model, "s": system, "u": user, "t": tools,
+                          "sc": schema, "r": role, "e": effort},
+                         sort_keys=True, ensure_ascii=False)
+    return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+class CachingLLM:
+    """غلافٌ يخزّن مخرجات النموذج على القرص بمفتاح المحتوى (أفضل جهد؛ يفشل بأمان)."""
+
+    def __init__(self, inner) -> None:
+        self.inner = inner
+        try:
+            _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+        except Exception:
+            pass
+
+    def complete(self, *, model, system, user, tools=None, schema=None, role=None, effort=None) -> dict:
+        f = _CACHE_DIR / (_cache_key(model, system, user, tools, schema, role, effort) + ".json")
+        if not getattr(settings, "LLM_CACHE_FRESH", False):
+            try:
+                if f.exists():
+                    return json.loads(f.read_text(encoding="utf-8"))
+            except Exception:
+                pass
+        res = self.inner.complete(model=model, system=system, user=user,
+                                  tools=tools, schema=schema, role=role, effort=effort)
+        try:
+            f.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+        except Exception:
+            pass
+        return res
+
+
 def get_llm():
-    """مصنع النموذج: وهمي في وضع MOCK، وإلا الحقيقي."""
-    return MockLLM() if settings.MOCK else OpenAILLM()
+    """مصنع النموذج: وهمي في وضع MOCK؛ وإلا الحقيقي مُغلَّفاً بالتخزين التدريجي (إن فُعِّل)."""
+    if settings.MOCK:
+        return MockLLM()
+    inner = OpenAILLM()
+    return CachingLLM(inner) if getattr(settings, "LLM_CACHE", True) else inner

@@ -24,7 +24,9 @@ WEB = Path(__file__).parent / "web"
 
 STAGES: dict[str, tuple[str, str]] = {
     "router": ("تصنيف الدعوى", "🧭"), "intake_register": ("قيد الدعوى", "📝"),
-    "rejected": ("عدم القبول", "⛔"), "notify_defendant": ("إشعار وتبليغ", "📨"),
+    "research": ("البحث القضائي (مبادئ وسوابق)", "🔎"),
+    "rejected": ("عدم قبول الدعوى شكلاً", "⛔"),
+    "referred": ("عدم اختصاصٍ نوعي — إحالة", "↪️"), "notify_defendant": ("إشعار وتبليغ", "📨"),
     "defendant_plea": ("مذكرة جوابية", "🛡️"),
     "incidents": ("الفصل في الدفوع", "⚖️"), "incident_ruling": ("حكمٌ بدفعٍ قاطع", "📑"),
     "plaintiff_plea": ("ردّ المدعي", "👤"),
@@ -34,8 +36,8 @@ STAGES: dict[str, tuple[str, str]] = {
     "appellee_response": ("ردّ المستأنف ضدّه", "🛡️"), "appeal_hearing": ("جلسة استئناف", "🏛️"),
     "appellate_panel": ("دائرة الاستئناف", "👨‍⚖️"), "reconsideration": ("التماس إعادة النظر", "🔁"),
 }
-RAIL = ["intake_register", "notify_defendant", "defendant_plea", "incidents", "plaintiff_plea", "hearing_manager",
-        "expert", "close_pleadings", "judgment", "serve_judgment", "appeal_brief",
+RAIL = ["intake_register", "research", "notify_defendant", "defendant_plea", "incidents", "plaintiff_plea",
+        "hearing_manager", "expert", "close_pleadings", "judgment", "serve_judgment", "appeal_brief",
         "appellee_response", "appeal_hearing", "appellate_panel", "reconsideration"]
 
 
@@ -90,6 +92,12 @@ def events_for(node: str, delta: dict, date: dict | None = None) -> list[dict]:
     for a in delta.get("audit_log", []) or []:
         evs.append({"type": "log", "actor": a.get("actor", ""), "action": a.get("action", ""),
                     "detail": a.get("detail", "") or "", "model": a.get("model", "")})
+    if delta.get("research"):
+        r = delta["research"]
+        evs.append({"type": "research", "principles": r.get("principles", []),
+                    "precedents": r.get("precedents", []),
+                    "outcome_signal": r.get("outcome_signal", ""),
+                    "summary": r.get("summary", "")})
     for doc in delta.get("document_ledger", []) or []:
         evs.append({"type": "document", "kind": doc.doc_type.value, "actor": doc.author_role,
                     "title": doc.title, "body": doc.body, "flag": doc.flag,
@@ -136,6 +144,7 @@ async def run(request: Request) -> StreamingResponse:
     def gen():
         config.apply(body.get("config"))   # مفتاح المستخدم + النماذج + المطالبات (مع تصفير الأصل)
         settings.MOCK = bool(mock)
+        settings.LLM_CACHE_FRESH = bool(body.get("fresh"))  # «توليد جديد» يتجاهل التخزين
         nodes._llm.cache_clear()
         state, filing = build_state(body)
         clock = filing

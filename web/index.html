@@ -71,6 +71,7 @@
   .cp-b{padding:13px 16px;display:flex;flex-direction:column;gap:10px}
   .fld{display:flex;flex-direction:column;gap:4px} .fld label{font-size:11px;color:var(--muted);font-weight:600}
   .fld input,.fld select,.fld textarea{border:1px solid var(--bd2);border-radius:9px;padding:8px 10px;font-size:13px;color:var(--txt);background:#fff;width:100%}
+  .mrow{display:flex;gap:7px} .mrow select:first-child{flex:1;min-width:0} .mrow .effsel{flex:0 0 138px}
   .fld textarea{resize:vertical;min-height:62px;line-height:1.7} .row2{display:grid;grid-template-columns:1fr 1fr;gap:9px}
   .opts{display:flex;flex-direction:column;gap:7px;border-top:1px dashed var(--bd2);padding-top:10px}
   .presets{display:flex;gap:7px;flex-wrap:wrap} .preset{font-size:11.5px;border:1px solid var(--bd2);background:#f5f8fc;border-radius:999px;padding:5px 11px;cursor:pointer;color:var(--txt2)}
@@ -156,6 +157,10 @@
   .chain{margin-top:8px;display:flex;flex-direction:column;gap:5px} .op{display:flex;align-items:center;gap:8px;font-size:12.5px;border:1px solid var(--bd);border-radius:9px;padding:7px 10px;background:#fbfcfe} .op .ok{color:var(--ok)} .op .bd{color:var(--bad)} .op .nm{margin-inline-end:auto;color:var(--txt2);font-weight:600}
   .judges{display:grid;grid-template-columns:repeat(3,1fr);gap:8px;margin-top:9px} .jcard{border:1px solid var(--bd);border-radius:11px;padding:10px 6px;text-align:center;background:#fbfcfe} .jlens{font-size:10.5px;color:var(--muted);min-height:30px;display:grid;place-items:center;line-height:1.3} .jvote{font-weight:800;font-size:12.5px;padding:5px 0;border-radius:8px;margin-top:5px}
   .v-up{color:#0e7a52;background:#e6f6ee}.v-mod{color:#9a7b1b;background:#fbf3df}.v-rev{color:#b23a5b;background:#fdeef2} .cons{margin-top:10px;text-align:center;font-weight:800;color:var(--primary);border-top:1px dashed var(--bd2);padding-top:9px;font-size:13px}
+  .rgrp{margin-top:9px} .rgrp h4{margin:0 0 6px;font-size:11.5px;color:var(--judge);font-weight:700}
+  .rprin{border:1px solid var(--bd);border-radius:10px;padding:8px 11px;background:#fbfcfe;margin-bottom:6px;font-size:12.5px;line-height:1.75} .rprin b{color:var(--txt2)} .rprin .rq{display:block;color:#566;font-style:italic;margin-top:3px;font-size:11.5px} .rprin .rref{display:inline-block;margin-top:4px;font-size:10.5px;color:var(--muted);background:#f0f3fa;border-radius:6px;padding:1px 7px}
+  .rprec{border:1px solid var(--bd);border-radius:10px;padding:8px 11px;background:#fbfcfe;margin-bottom:6px;font-size:12.5px;line-height:1.7} .rprec .rhold{color:#49526a;margin-top:3px} .rprec .rmeta{display:flex;align-items:center;gap:7px;margin-top:5px} .rprec .rdir{font-weight:800;font-size:11px;padding:2px 8px;border-radius:7px} .rprec .rref{font-size:10.5px;color:var(--muted)}
+  .rsignal{margin-top:9px;text-align:center;font-size:12.5px;color:var(--txt2);border-top:1px dashed var(--bd2);padding-top:9px} .rsignal b{color:var(--judge)}
   .out{text-align:center;margin-top:8px} .out .big{font-size:30px} .out.ok{color:#15724a}.out.bad{color:var(--bad)} .out p{margin:6px 0 0;font-size:12.5px;line-height:1.8;color:var(--txt2)}
 </style>
 </head>
@@ -171,6 +176,7 @@
     <button class="hbtn" id="zfit" title="ملاءمة الكل">⛶</button>
     <button class="hbtn" id="openSettings" title="الإعدادات">⚙️</button>
     <label class="toggle"><input type="checkbox" id="real"> حقيقي <span class="spin" id="busy" style="display:none"></span></label>
+    <label class="toggle" title="تجاهل التخزين وأعد توليد كل العقد من جديد"><input type="checkbox" id="fresh"> 🔄 توليد جديد</label>
     <button class="run" id="run">▶ شغّل المحاكاة</button>
   </header>
   <div id="progress"><div id="progbar"></div></div>
@@ -222,12 +228,12 @@ const $=s=>document.querySelector(s);
 const stage=$('#stage'),world=$('#world'),svg=$('#edges'),insp=$('#inspector'),inspBody=insp.querySelector('.insp-body');
 const statusText=$('#statusText'),dlBanner=$('#dlBanner'),NS='http://www.w3.org/2000/svg';
 let zoom=.9,panX=70,panY=20,nodes=[],edges=[],cur=null,prev=null,selected=null,followActive=true,uid=0,running=false,view='flow',seq=0,stagesSeen=0,total=14;
-let CFG={api_key:'',models:{},prompts:{}},CFG_DEF={models:{},prompts:{},model_suggestions:[]};
+let CFG={api_key:'',models:{},efforts:{},prompts:{}},CFG_DEF={models:{},efforts:{},prompts:{},model_suggestions:[],effort_options:[]};
 let overrides={},timelineEvents=[];
 const LANE=2100,NW=220,GAP=152,Y0=120;
 const ROLE_HEX={judge:'#bd8a12',defendant:'#0d9488',plaintiff:'#2563eb',expert:'#7c4ddb',appeal:'#c43d63',system:'#5d6678'};
-const NODEROLE={router:'system',intake_register:'system',rejected:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
-const METHOD={router:'يقرأ موضوع الدعوى وقيمتها فيصنّفها ويوجّه المسار.',intake_register:'يدقّق صحيفة الدعوى شكلاً وموضوعاً مقابل الأنظمة.',notify_defendant:'إشعار المدعى عليه وضبط ميعاد الجواب (عبر ناجز).',defendant_plea:'يبني الدفوع الشكلية ثم الموضوعية مستنداً للأنظمة والسوابق.',incidents:'القاضي يفصل في الدفوع الشكلية المثارة (عدم الاختصاص/التقادم) بمنطق الاستدلال نفسه.',incident_ruling:'حكمٌ بقبول دفعٍ قاطعٍ يُنهي الدعوى (عدم اختصاص/سقوط بالتقادم).',plaintiff_plea:'ردّ المدعي على الدفوع وتمسّكه بطلباته.',hearing_manager:'القاضي يقدّر كفاية المرافعة: جولة، أو خبير، أو إقفال.',expert:'خبير محايد يقدّم تقريراً فنياً مسبّباً.',close_pleadings:'قفل باب المرافعة ورفع الدعوى للدراسة والتأمل.',judgment:'محرّك الاستدلال: تحرير ← تكييف ← محل النزاع ← إثبات ← تطبيق ← تسبيب ← مراجعة، مع بوابة تأصيلٍ حابسة.',serve_judgment:'تسليم الحكم وبدء مهلة الاعتراض (٣٠ يوماً).',appeal_brief:'لائحة اعتراض المستأنف.',appellee_response:'ردّ المستأنف ضدّه.',appeal_hearing:'جلسة استئناف للإيضاحات.',appellate_panel:'دائرة ثلاثية: تصويتٌ أعمى ثم مداولة ثم إجماع.',reconsideration:'فحص سبب الالتماس مقابل أسباب المادة ٢٠٠.'};
+const NODEROLE={router:'system',intake_register:'system',research:'judge',rejected:'appeal',referred:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
+const METHOD={router:'يقرأ موضوع الدعوى وقيمتها فيصنّفها ويوجّه المسار.',intake_register:'يدقّق صحيفة الدعوى شكلاً واختصاصاً نوعياً تجارياً مقابل الأنظمة.',research:'هيئة بحثٍ قضائي تسترجع المبادئ القضائية التجارية والسوابق المشابهة لتوجيه التكييف والتطبيق (استئناساً لا تقييداً). اتجاه السوابق يُحجب عن القاضي تفادياً للإرساء.',referred:'تحكم المحكمة بعدم اختصاصها النوعي وتأمر بإحالة الدعوى إلى الجهة المختصّة — لا ردٌّ شكلي؛ تُنقل الخصومة وتبقى آثار رفعها.',notify_defendant:'إشعار المدعى عليه وضبط ميعاد الجواب (عبر ناجز).',defendant_plea:'يبني الدفوع الشكلية ثم الموضوعية مستنداً للأنظمة والسوابق.',incidents:'القاضي يفصل في الدفوع الشكلية المثارة (عدم الاختصاص/التقادم) بمنطق الاستدلال نفسه.',incident_ruling:'حكمٌ بقبول دفعٍ قاطعٍ يُنهي الدعوى (عدم اختصاص/سقوط بالتقادم).',plaintiff_plea:'ردّ المدعي على الدفوع وتمسّكه بطلباته.',hearing_manager:'القاضي يقدّر كفاية المرافعة: جولة، أو خبير، أو إقفال.',expert:'خبير محايد يقدّم تقريراً فنياً مسبّباً.',close_pleadings:'قفل باب المرافعة ورفع الدعوى للدراسة والتأمل.',judgment:'محرّك الاستدلال: تحرير ← تكييف ← محل النزاع ← إثبات ← تطبيق ← تسبيب ← مراجعة، مع بوابة تأصيلٍ حابسة.',serve_judgment:'تسليم الحكم وبدء مهلة الاعتراض (٣٠ يوماً).',appeal_brief:'لائحة اعتراض المستأنف.',appellee_response:'ردّ المستأنف ضدّه.',appeal_hearing:'جلسة استئناف للإيضاحات.',appellate_panel:'دائرة ثلاثية: تصويتٌ أعمى ثم مداولة ثم إجماع.',reconsideration:'فحص سبب الالتماس مقابل أسباب المادة ٢٠٠.'};
 const ROLEKEYS=[['قاض','judge'],['دائرة','judge'],['مستأنف ضد','defendant'],['مستأنف','appeal'],['مدعى','defendant'],['خبير','expert'],['ملتمس','appeal'],['مدعي','plaintiff'],['مُسجّل','system'],['محكمة','judge']];
 const roleByActor=a=>{for(const[k,r]of ROLEKEYS)if((a||'').includes(k))return r;return null};
 const escH=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -312,6 +318,11 @@ function renderInspector(n){const d=n.data;
   if(n.date&&n.date.greg)h+=`<div class="idate">📅 ${escH(n.date.hijri||'')}${n.date.greg?(' — '+escH(n.date.greg)+'م'):''}</div>`;
   if(METHOD[n.node])h+=`<div class="method"><b>منهجية الوكيل:</b> ${escH(METHOD[n.node])}</div>`;
   (d.logs||[]).forEach(l=>{if(l.detail)h+=`<div class="note"><b>${escH(l.action)}</b> · ${escH(l.detail)}</div>`});
+  if(d.research){const R=d.research;const sig=escH(R.outcome_signal||'—');
+    h+=`<div class="sec"><span class="seclbl">🔎 بحثٌ قضائيٌّ تأصيلي — مبادئ وسوابق تجارية</span>`;
+    if(R.principles&&R.principles.length){h+=`<div class="rgrp"><h4>المبادئ القضائية الحاكمة</h4>${R.principles.map(p=>`<div class="rprin"><b>${escH(p.principle||'')}</b>${p.quote?`<span class="rq">«${escH(p.quote)}»</span>`:''}${p.ref?`<span class="rref">${escH(p.ref)}</span>`:''}</div>`).join('')}</div>`}
+    if(R.precedents&&R.precedents.length){h+=`<div class="rgrp"><h4>سوابق مشابهة (استئناس)</h4>${R.precedents.map(c=>{const o=escH(c.outcome||'');const oc=o.includes('للمدعى')?'v-rev':o.includes('مختلط')?'v-mod':'v-up';return `<div class="rprec"><div>${escH(c.summary||'')}</div><div class="rhold">← ${escH(c.holding||'')}</div><div class="rmeta"><span class="rdir ${oc}">${o}</span>${c.ref?`<span class="rref">${escH(c.ref)}</span>`:''}</div></div>`}).join('')}</div>`}
+    h+=`<div class="rsignal">إشارة اتجاه السوابق (استئناسيةٌ لا تقيّد القاضي): <b>${sig}</b></div></div>`}
   if(d.document){const doc=d.document;h+=`<div class="sec"><span class="seclbl">${escH(doc.kind)} — نصّ الوكيل ${doc.overridden?'<span class="ovbadge">📝 من المستخدم</span>':''}</span><textarea class="edit" id="editbox">${escH(doc.body)}</textarea><button class="save" id="saveBtn">💾 احفظ النص وأعد التشغيل</button></div>${cites(doc.citations)}`}
   if(d.ruling){const r=d.ruling,b=r.appealable===false?`<span class="badge no">نهائي — ${escH(r.route)}</span>`:`<span class="badge yes">قابل للاستئناف — ${escH(r.route)}</span>`;
     h+=`<div class="sec"><span class="seclbl">${escH(r.kind)} <span class="conf ${confCls(r.confidence)}">الثقة: ${escH(r.confidence||'—')}</span></span>`;
@@ -346,6 +357,7 @@ function handle(ev){switch(ev.type){
     statusText.innerHTML=`بدأت — <b>${escH(ev.case_id)}</b> · القيد ${escH((ev.filing||{}).hijri||'')} · ${ev.mock?'وهمي':'حقيقي'}`;break;
   case 'stage':{const n=makeNode(ev.node,ev.label,ev.icon,ev.date);setActive(n);if(view==='flow')panTo(n);if(followActive)selectNode(n);timelineEvents.push({label:ev.label,icon:ev.icon,node:ev.node,date:ev.date,ref:n});if(view==='calendar')renderCalendar();stagesSeen++;$('#progbar').style.width=Math.min(100,Math.round(stagesSeen/total*100))+'%';statusText.innerHTML=`الآن: <b>${escH(ev.label)}</b>${ev.date&&ev.date.hijri?(' · '+escH(ev.date.hijri)):''}`;break}
   case 'log': if(cur){cur.data.actor=ev.actor||cur.data.actor;if(ev.model)cur.data.model=ev.model;cur.data.logs.push({action:ev.action,detail:ev.detail});applyActor(cur);if(selected===cur)renderInspector(cur)}break;
+  case 'research': if(cur){cur.data.research=ev;refresh(cur)}break;
   case 'document': if(cur){cur.data.document=ev;if(ev.actor){cur.data.actor=ev.actor;applyActor(cur)}markOvr(cur);refresh(cur)}break;
   case 'ruling': if(cur){cur.data.ruling=ev;refresh(cur)}break;
   case 'panel': if(cur){cur.data.panel=ev;cur.data.actor='دائرة الاستئناف';applyActor(cur);refresh(cur);const P=cur,vs=ev.votes||[];vs.forEach((v,i)=>makeChild(P,v.lens,v.vote,i,vs.length))}break;
@@ -358,31 +370,34 @@ function handle(ev){switch(ev.type){
 /* البثّ عبر POST */
 async function streamRun(body){const resp=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const reader=resp.body.getReader(),dec=new TextDecoder();let buf='';
   while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{handle(JSON.parse(line.slice(5).trim()))}catch(e){console.error(e)}}}}}
-function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0.12:0.45,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,prompts:CFG.prompts}}}
+function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0:0.45,fresh:$('#fresh').checked,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,efforts:CFG.efforts,prompts:CFG.prompts}}}
 async function runSim(){if(running)return;running=true;$('#run').disabled=true;if(view!=='flow')setView('flow');nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=null;seq=0;
   try{await streamRun(caseBody())}catch(e){statusText.textContent='تعذّر الاتصال بالخادم';$('#busy').style.display='none';running=false;$('#run').disabled=false}}
 $('#run').onclick=runSim;
 
 /* ===== الإعدادات (مفتاح OpenAI + النماذج + مطالبات النظام) ===== */
 async function loadConfig(){try{CFG_DEF=await(await fetch('/api/config')).json();}catch(e){}
-  CFG.models={...(CFG_DEF.models||{})};CFG.prompts={...(CFG_DEF.prompts||{})};
-  try{const s=JSON.parse(localStorage.getItem('bayyin_cfg')||'null');if(s){CFG.api_key=s.api_key||'';Object.assign(CFG.models,s.models||{});Object.assign(CFG.prompts,s.prompts||{})}}catch(e){}}
+  CFG.models={...(CFG_DEF.models||{})};CFG.efforts={...(CFG_DEF.efforts||{})};CFG.prompts={...(CFG_DEF.prompts||{})};
+  try{const s=JSON.parse(localStorage.getItem('bayyin_cfg')||'null');if(s){CFG.api_key=s.api_key||'';Object.assign(CFG.models,s.models||{});Object.assign(CFG.efforts,s.efforts||{});Object.assign(CFG.prompts,s.prompts||{})}}catch(e){}}
 function modelOpts(cur){const seen=new Set();const out=[];[cur,...(CFG_DEF.model_suggestions||[])].forEach(m=>{if(m&&!seen.has(m)){seen.add(m);out.push(m)}});return out;}
 function buildSettings(){const b=$('#settingsBody');
   let h=`<div class="sheet-sec">🔑 مفتاح OpenAI</div><div class="keyhint">يُترك فارغاً لاستخدام مفتاح الخادم (.env). يُحفظ في متصفّحك فقط، ولا يُخزَّن على الخادم.</div><div class="fld"><input id="set_key" type="password" placeholder="sk-... (اختياري)" value="${escH(CFG.api_key)}"></div><div class="sheet-sec">🧠 النماذج لكل طبقة</div>`;
+  const effOpts=(CFG_DEF.effort_options||['','low','medium','high']);
   [['router','الموجِّه السريع'],['standard','الوكلاء القياسيون'],['pro','المتقدّم'],['judge','القاضي (الاستدلال والدفوع)']].forEach(([k,t])=>{
     const cur=CFG.models[k]||(CFG_DEF.models||{})[k]||'';
-    h+=`<div class="fld"><label>${escH(t)}</label><select id="set_m_${k}">${modelOpts(cur).map(m=>`<option value="${escH(m)}"${m===cur?' selected':''}>${escH(m)}</option>`).join('')}<option value="__custom__">➕ نموذج مخصّص…</option></select><input class="mcustom" id="set_mc_${k}" placeholder="اكتب معرّف النموذج" style="display:none"></div>`;
+    const eff=(CFG.efforts[k]!=null?CFG.efforts[k]:(CFG_DEF.efforts||{})[k])||'';
+    const effSel=`<select id="set_e_${k}" class="effsel">${effOpts.map(e=>`<option value="${escH(e)}"${e===eff?' selected':''}>${e?('جهد: '+escH(e)):'جهد: افتراضي'}</option>`).join('')}</select>`;
+    h+=`<div class="fld"><label>${escH(t)}</label><div class="mrow"><select id="set_m_${k}">${modelOpts(cur).map(m=>`<option value="${escH(m)}"${m===cur?' selected':''}>${escH(m)}</option>`).join('')}<option value="__custom__">➕ نموذج مخصّص…</option></select>${effSel}</div><input class="mcustom" id="set_mc_${k}" placeholder="اكتب معرّف النموذج" style="display:none"></div>`;
   });
   h+=`<div class="sheet-sec">📜 مطالبات النظام (قابلة للتعديل)</div>`;
   Object.keys(CFG.prompts).forEach(k=>h+=`<details class="set-acc" open><summary>${escH(k)}</summary><textarea data-pk="${escH(k)}">${escH(CFG.prompts[k])}</textarea></details>`);
   b.innerHTML=h;
   b.querySelectorAll('select[id^="set_m_"]').forEach(s=>s.onchange=()=>{const ci=$('#set_mc_'+s.id.slice(6));if(!ci)return;if(s.value==='__custom__'){ci.style.display='';ci.focus()}else{ci.style.display='none'}});}
 function saveSettings(){CFG.api_key=($('#set_key').value||'').trim();
-  ['router','standard','pro','judge'].forEach(k=>{const sel=$('#set_m_'+k);let v=sel?sel.value:'';if(v==='__custom__')v=($('#set_mc_'+k).value||'').trim();CFG.models[k]=(v||'').trim()||(CFG_DEF.models||{})[k]});
+  ['router','standard','pro','judge'].forEach(k=>{const sel=$('#set_m_'+k);let v=sel?sel.value:'';if(v==='__custom__')v=($('#set_mc_'+k).value||'').trim();CFG.models[k]=(v||'').trim()||(CFG_DEF.models||{})[k];const es=$('#set_e_'+k);CFG.efforts[k]=es?es.value:''});
   $('#settingsBody').querySelectorAll('textarea[data-pk]').forEach(t=>CFG.prompts[t.dataset.pk]=t.value);
   localStorage.setItem('bayyin_cfg',JSON.stringify(CFG));$('#settingsModal').classList.remove('open');statusText.textContent='✔ حُفظت الإعدادات — تُطبَّق في التشغيل القادم.';}
-function resetSettings(){CFG.api_key='';CFG.models={...(CFG_DEF.models||{})};CFG.prompts={...(CFG_DEF.prompts||{})};localStorage.removeItem('bayyin_cfg');buildSettings();}
+function resetSettings(){CFG.api_key='';CFG.models={...(CFG_DEF.models||{})};CFG.efforts={...(CFG_DEF.efforts||{})};CFG.prompts={...(CFG_DEF.prompts||{})};localStorage.removeItem('bayyin_cfg');buildSettings();}
 $('#openSettings').onclick=async()=>{if(!Object.keys(CFG.prompts||{}).length||!Object.keys(CFG.models||{}).length)await loadConfig();buildSettings();$('#settingsModal').classList.add('open')};
 $('#closeSettings').onclick=()=>$('#settingsModal').classList.remove('open');
 $('#settingsModal').onclick=e=>{if(e.target.id==='settingsModal')e.currentTarget.classList.remove('open')};

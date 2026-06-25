@@ -51,7 +51,7 @@ def main() -> None:
         res = llm.complete(
             model=settings.GPT_PRO, system=prompts.TRIAL_JUDGE,
             user=f"الوقائع: {case['facts']}\nأصدر حكماً مسبّباً.",
-            tools=tools_for("search_saudi_codes", "search_commercial_precedents"),
+            tools=tools_for("search_saudi_codes", "search_commercial_principles"),
             schema=JUDGMENT_SCHEMA, role="judge",
         )
         got = _classify((res.get("data") or {}).get("operative", ""))

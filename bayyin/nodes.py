@@ -70,26 +70,68 @@ def router_node(state: CaseState) -> dict:
 
 
 def intake_register_node(state: CaseState) -> dict:
-    """قيد الدعوى: تدقيق شكلي حتمي + ملاحظة موضوعية من المُسجِّل عبر RAG."""
+    """قيد الدعوى: تدقيقٌ شكليٌّ حتمي (intake_ok) + فحصُ اختصاصٍ نوعيٍّ تجاري (intake_referred)
+    منفصلان: النقص الشكلي يُردّ، وعدم الاختصاص النوعي يُحال — لا يُخلطان."""
     result = rules.validate_claim_sheet(state)
+    formal_ok = result.ok
+    referred, referral_reason = False, ""
+    if formal_ok:  # الاختصاص النوعي يُفحص فقط متى صحّت الصحيفة شكلاً.
+        in_scope, reason = rules.commercial_jurisdiction(state)
+        referred, referral_reason = (not in_scope), (reason if not in_scope else "")
+    accepted = formal_ok and not referred
     note = ""
-    if result.ok:
+    if accepted:
         res = _llm().complete(
             model=settings.GPT_STANDARD, system=prompts.REGISTRAR,
             user=f"دقّق صحيفة الدعوى التالية:\n{_claim_text(state)}",
             tools=tools_for("search_saudi_codes"), role="registrar",
         )
         note = res.get("text", "")
+    detail = ("مقبولة. " + note if accepted else
+              referral_reason if referred else "؛ ".join(result.issues))
     return {
-        "intake_ok": result.ok, "intake_issues": result.issues,
-        "audit_log": [event("المُسجِّل", "تدقيق صحيفة الدعوى", model=settings.GPT_STANDARD,
-                            detail=("مقبولة. " + note) if result.ok else "؛ ".join(result.issues),
-                            sources=["search_saudi_codes"] if result.ok else [])],
+        "intake_ok": formal_ok, "intake_issues": result.issues,
+        "intake_referred": referred, "referral_reason": referral_reason,
+        "audit_log": [event("المُسجِّل", "تدقيق صحيفة الدعوى (شكلاً واختصاصاً نوعياً)",
+                            model=settings.GPT_STANDARD, detail=detail,
+                            sources=["search_saudi_codes"] if accepted else [])],
     }
 
 
 def route_after_intake(state: CaseState) -> str:
-    return "notify_defendant" if state.get("intake_ok") else "rejected"
+    if not state.get("intake_ok"):
+        return "rejected"                    # نقصٌ شكلي → ردّ الدعوى (تنتهي الخصومة)
+    if state.get("intake_referred"):
+        return "referred"                    # عدم اختصاصٍ نوعي → الحكم بعدم الاختصاص والإحالة
+    return "research"
+
+
+def referred_node(state: CaseState) -> dict:
+    """الحكم بعدم الاختصاص النوعي وإحالة الدعوى للجهة المختصّة (لا ردٌّ شكلي — تُنقل الخصومة)."""
+    reason = state.get("referral_reason") or "عدم الاختصاص النوعي للمحكمة التجارية."
+    return {
+        "referral_decision": reason,
+        "audit_log": [event("المحكمة", "الحكم بعدم الاختصاص النوعي وإحالة الدعوى",
+                            detail=reason)],
+    }
+
+
+def research_node(state: CaseState) -> dict:
+    """البحث القضائي: استرجاع المبادئ والسوابق التجارية لتوجيه المحاكاة (مرّةً واحدة)."""
+    if state.get("research"):
+        return {}
+    from . import research as research_mod
+    r = research_mod.research(state)
+    srcs = r.get("sources") or ["search_commercial_principles",
+                                "search_commercial_precedents_1", "search_commercial_precedents_2"]
+    return {
+        "research": r,
+        "audit_log": [event("هيئة البحث القضائي", "استرجاع المبادئ والسوابق التجارية ذات الصلة",
+                            model=settings.GPT_STANDARD,
+                            detail=(f"مبادئ: {len(r['principles'])} · سوابق: {len(r['precedents'])} · "
+                                    f"إشارة الاتجاه (استئناسية): {r['outcome_signal']}"),
+                            sources=srcs)],
+    }
 
 
 def rejected_node(state: CaseState) -> dict:
@@ -121,7 +163,7 @@ def defendant_plea_node(state: CaseState) -> dict:
     user = _case_file_text(state) + "\n\nاكتب مذكرتك الجوابية لهذه الجولة رداً على ما استجدّ."
     res = _llm().complete(
         model=_model_for(state), system=prompts.DEFENDANT, user=user,
-        tools=tools_for("search_saudi_codes", "search_commercial_precedents"),
+        tools=tools_for("search_saudi_codes", "search_commercial_principles"),
         schema=DEFENSE_SCHEMA, role="defendant",
     )
     data = res.get("data") or {"title": "مذكرة جوابية", "body": res.get("text", ""), "citations": []}
@@ -344,7 +386,7 @@ def appellee_response_node(state: CaseState) -> dict:
                 "audit_log": [event("وكيل المستأنف ضده", "الرد على الاستئناف (نصٌّ من المستخدم)")]}
     res = _llm().complete(
         model=settings.GPT_STANDARD, system=prompts.APPELLEE, user=_appeal_context(state),
-        tools=tools_for("search_saudi_codes", "search_commercial_precedents"),
+        tools=tools_for("search_saudi_codes", "search_commercial_principles"),
         schema=DEFENSE_SCHEMA, role="appellee",
     )
     data = res.get("data") or {"title": "مذكرة جوابية على الاستئناف", "body": res.get("text", ""), "citations": []}
@@ -425,8 +467,14 @@ def _claim_text(state: CaseState) -> str:
     return base + (f"\nصحيفة الدعوى:\n{sheet.body}" if sheet else "")
 
 
-def _case_file_text(state: CaseState) -> str:
-    parts = [_claim_text(state), "\n--- المذكرات المتبادلة ---"]
+def _case_file_text(state: CaseState, for_judge: bool = False) -> str:
+    parts = [_claim_text(state)]
+    r = state.get("research") or {}
+    # للقاضي: نسخةٌ تحجب اتجاه السوابق ونتائجها (تفادي الإرساء)؛ للخصم/العرض: النسخة الكاملة.
+    summ = r.get("summary_judge") if for_judge else r.get("summary")
+    if summ:
+        parts.append("\n" + summ)
+    parts.append("\n--- المذكرات المتبادلة ---")
     for doc in state.get("document_ledger", []):
         if doc.doc_type in (DocType.DEFENSE_MEMO, DocType.PLAINTIFF_REPLY, DocType.EXPERT_REPORT):
             parts.append(f"[{doc.title}]\n{doc.body}")

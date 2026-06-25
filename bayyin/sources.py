@@ -23,6 +23,7 @@ class Rank(str, Enum):
     NIZAM = "نظام"
     LAIHA = "لائحة"
     PRINCIPLE = "تعميم/مبدأ قضائي"
+    PRECEDENT = "سابقة قضائية"
 
 
 # الأنظمة السعودية المعروفة (ما عداها يُعدّ مصدراً مجهولاً = مؤشّر اختلاق).
@@ -36,7 +37,15 @@ KNOWN_SYSTEMS: dict[str, Rank] = {
     "نظام التنفيذ": Rank.NIZAM,
     "اللائحة التنفيذية لنظام المرافعات الشرعية": Rank.LAIHA,
     "قرارات المجلس الأعلى للقضاء": Rank.PRINCIPLE,
+    # مصادرٌ تُسترجَع لحظياً عبر file_search (لا نواةٌ ثابتة لها): تُعدّ مؤصَّلةً فقط
+    # إذا حملت اقتباساً مُسترجَعاً فعلاً — وإلا «غير مُحمَّلة» لا «مختلقة».
+    "المبادئ القضائية التجارية": Rank.PRINCIPLE,
+    "السوابق القضائية التجارية": Rank.PRECEDENT,
 }
+
+# مصادرٌ مرجعها الاسترجاع الحيّ (file_search) لا النواة الثابتة. التأصيل = وجود اقتباسٍ مُسترجَع.
+RETRIEVED_SYSTEMS: frozenset[str] = frozenset(
+    {"المبادئ القضائية التجارية", "السوابق القضائية التجارية"})
 
 
 class Cite(BaseModel):
@@ -121,10 +130,15 @@ class CiteStatus(str, Enum):
     FABRICATED = "مختلق"         # مصدرٌ مجهولٌ أو مرجعٌ غير ممكن
 
 
-def verify_cite(c: Cite) -> tuple[CiteStatus, str]:
+def verify_cite(c: Cite, evidence: list[str] | None = None) -> tuple[CiteStatus, str]:
     """
     حجر الزاوية: يصنّف كل إسناد. لا يُعدّ القول مُؤصَّلاً إلا VERIFIED/SHARIA.
     FABRICATED يُسقِط الحكم (بوابة صفر-اختلاق).
+
+    evidence: نصوص المقاطع المُسترجَعة فعلاً من file_search في النداء نفسه. عند تمريرها،
+    لا يُؤصَّل إسنادُ مبدأٍ/سابقةٍ إلا إذا طابق اقتباسُه نصاً مُسترجَعاً فعلاً (سدّ ثغرة
+    اختلاق اقتباسٍ معقولٍ لمصدرٍ لم يُسترجَع). إن كانت None (اختبارٌ وحدوي/وضع وهمي بلا
+    استرجاع) نكتفي بوجود الاقتباس.
     """
     if c.system not in KNOWN_SYSTEMS:
         return CiteStatus.FABRICATED, f"مصدرٌ غير معروف: «{c.system}»."
@@ -132,6 +146,18 @@ def verify_cite(c: Cite) -> tuple[CiteStatus, str]:
         if not (c.quote.strip() or c.claim.strip()):
             return CiteStatus.UNLOADED, "استنادٌ للشريعة بلا مبدأٍ أو دليلٍ محدّد — لا يُعتدّ به تأصيلاً."
         return CiteStatus.SHARIA, "استنادٌ للشريعة (مسألةٌ قد لا نصّ نظاميٌّ فيها)."
+    # مبادئ/سوابق تجارية: مرجعها الاسترجاع الحيّ؛ لا تُعدّ مؤصَّلةً إلا باقتباسٍ مُسترجَع،
+    # ويجب — متى توفّرت المقاطع المُسترجَعة — أن يطابق الاقتباسُ نصاً منها فعلاً (لا مجرّد
+    # كونه غير فارغ)، فلا يمرّ اقتباسٌ مختلقٌ لمبدأٍ أو سابقةٍ لم يُسترجَعا.
+    if c.system in RETRIEVED_SYSTEMS:
+        if not c.quote.strip():
+            return CiteStatus.UNLOADED, f"{c.system} دون اقتباسٍ مُسترجَع — لا يُعتدّ بها تأصيلاً."
+        if evidence is not None:
+            joined = " ".join(evidence)
+            if not (joined.strip() and _loose_overlap(c.quote, joined)):
+                return CiteStatus.UNLOADED, (f"{c.system}: الاقتباس لا يقابل نصاً مُسترجَعاً "
+                                             f"فعلاً — لا يُعتدّ به (شبهةُ اختلاق).")
+        return CiteStatus.VERIFIED, f"{c.system} — مُسترجَعة باقتباسٍ مطابق."
     art = get(c.system, c.article)
     if art is None:
         return CiteStatus.UNLOADED, f"«{c.system}» معروف، لكن المادة «{c.article}» ليست في النواة المُحمَّلة بعد."
@@ -165,15 +191,16 @@ def _loose_overlap(quote: str, text: str) -> bool:
     return len(qs & ts) / len(qs) >= 0.25
 
 
-def assess_grounding(cites: list[Cite]) -> dict:
+def assess_grounding(cites: list[Cite], evidence: list[str] | None = None) -> dict:
     """
     تقرير تأصيلٍ للحكم: يلزم ≥1 إسنادٍ VERIFIED وصفر FABRICATED.
     يرفع عدم اليقين عند الاستناد للشريعة (غياب النص) أو وجود غير مُحمَّل.
+    evidence: نصوص المقاطع المُسترجَعة فعلاً (تُحقَّق بها اقتباساتُ المبادئ/السوابق).
     """
     counts = {s: 0 for s in CiteStatus}
     issues: list[str] = []
     for c in cites:
-        st, why = verify_cite(c)
+        st, why = verify_cite(c, evidence)
         counts[st] += 1
         if st in (CiteStatus.FABRICATED,):
             issues.append(f"⛔ {why}")

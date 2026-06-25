@@ -141,6 +141,12 @@ class CaseState(TypedDict, total=False):
     # القيد والتحقّق
     intake_ok: bool
     intake_issues: list[str]
+    intake_referred: bool        # عدم اختصاصٍ نوعي (تجاري فقط) → إحالة لا ردّ
+    referral_reason: str
+    referral_decision: str
+
+    # البحث القضائي التجاري (مبادئ + سوابق مُسترجَعة لتوجيه المحاكاة)
+    research: dict
 
     # التفاعل البشري (المدعي) — للعرض غير التفاعلي نزوّد ردوداً مكتوبة مسبقاً
     scripted_plaintiff_replies: list[str]

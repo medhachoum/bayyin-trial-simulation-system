@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from . import settings, sources
 from .llm import get_llm
@@ -29,6 +29,7 @@ class OpResult:
     data: dict
     cites: list[Cite]
     verdict: Verdict
+    evidence: list[str] = field(default_factory=list)  # نصوص المقاطع المُسترجَعة فعلاً في هذه العملية
 
 
 _CITE = {
@@ -82,16 +83,21 @@ S_MURAJA = _schema("muraja", {
 # مطالبات العمليات (سعودية)
 _P = {
     "tahrir": "أنت قاضٍ سعودي في طور تحرير الدعوى: حدّد طلبات المدعي بدقّة (نوعها وقيمتها)، والصفة والمصلحة.",
-    "takyif": "أنت قاضٍ سعودي تُكيّف النزاع قانوناً: حدّد طبيعته والنظام الحاكم له، واستشهد بالنظام والمادة. لا تخترع نظاماً أو مادة.",
-    "mahal": "أنت قاضٍ سعودي تحدّد محل النزاع: ميّز المتّفق عليه من المتنازَع، وأحصِ دفوع المدعى عليه الجوهرية.",
-    "ithbat": "أنت قاضٍ سعودي تُعمِل نظام الإثبات: لكل نقطة متنازعة حدّد من عليه عبء الإثبات (البيّنة على من ادّعى) وهل ثبتت، مستنداً لنظام الإثبات.",
-    "tatbiq": "أنت قاضٍ سعودي تُنزِل الحكم النظامي على الوقائع الثابتة: استشهد بالقاعدة الحاكمة من نظامها ومادتها، ثم استنتج.",
-    "tasbib": "أنت قاضٍ سعودي تصوغ التسبيب والمنطوق: اربط الأسباب بالمنطوق، ولا تقضِ بما لم يُطلب ولا بأكثر منه، ولا تترك تناقضاً، وردّ على كل دفعٍ جوهري، واذكر إسناداتك (نظام+مادة).",
+    "takyif": "أنت قاضٍ تجاريٌّ سعودي تُكيّف النزاع قانوناً: حدّد طبيعته والنظام الحاكم له، واستشهد بالنظام والمادة، وبالمبادئ القضائية التجارية المُسترجَعة في ملف الدعوى عند مطابقتها. لا تخترع نظاماً أو مادة أو مبدأً.",
+    "mahal": "أنت قاضٍ تجاريٌّ سعودي تحدّد محل النزاع: ميّز المتّفق عليه من المتنازَع، وأحصِ دفوع المدعى عليه الجوهرية.",
+    "ithbat": "أنت قاضٍ تجاريٌّ سعودي تُعمِل نظام الإثبات: لكل نقطة متنازعة حدّد من عليه عبء الإثبات (البيّنة على من ادّعى) وهل ثبتت، مستنداً لنظام الإثبات.",
+    "tatbiq": "أنت قاضٍ تجاريٌّ سعودي تُنزِل الحكم النظامي على الوقائع الثابتة: استشهد بالقاعدة الحاكمة من نظامها ومادتها، وبالمبدأ القضائي التجاري المُسترجَع عند مطابقته (النظام=المبادئ القضائية التجارية، المرجع=رقم/عنوان المبدأ، الاقتباس=نصّه)، ثم استنتج. لا تخترع.",
+    "tasbib": "أنت قاضٍ تجاريٌّ سعودي تصوغ التسبيب والمنطوق: اربط الأسباب بالمنطوق، ولا تقضِ بما لم يُطلب ولا بأكثر منه، ولا تترك تناقضاً، وردّ على كل دفعٍ جوهري، واذكر إسناداتك (نظام+مادة، أو مبدأٌ قضائيٌّ تجاريٌّ مُسترجَع باقتباسه). تستأنس بالسوابق دون أن تتقيّد بها.",
     "muraja": "أنت قاضٍ مراجِع (بمنطق الاستئناف): افحص سلامة الحكم — تأصيل الأسباب، عدم تجاوز الطلبات، اتّساق المنطوق، الردّ على الدفوع.",
 }
 # نماذج العمليات تُحسب ديناميكياً (تتأثّر بإعدادات المستخدم وقت التشغيل).
 def _model_for_op(key: str) -> str:
     return settings.GPT_STANDARD if key in ("tahrir", "mahal") else settings.GPT_JUDGE
+
+
+def _effort_for_op(key: str) -> str | None:
+    # عمليات القاضي الجوهرية (تكييف/إثبات/تطبيق/تسبيب) تأخذ جهد القاضي؛ التحرير ومحل النزاع جهدَ القياسي.
+    return settings.EFFORT_STANDARD if key in ("tahrir", "mahal") else settings.EFFORT_JUDGE
 
 
 def _cites(items) -> list[Cite]:
@@ -102,15 +108,15 @@ def _cites(items) -> list[Cite]:
     return out
 
 
-def _call(key: str, user: str, schema: dict, tools: list | None = None) -> dict:
-    res = get_llm().complete(model=_model_for_op(key), system=_P[key],
-                             user=user, tools=tools, schema=schema, role=f"op_{key}")
-    return res.get("data") or {}
+def _call(key: str, user: str, schema: dict, tools: list | None = None) -> tuple[dict, list[str]]:
+    res = get_llm().complete(model=_model_for_op(key), system=_P[key], user=user, tools=tools,
+                             schema=schema, role=f"op_{key}", effort=_effort_for_op(key))
+    return (res.get("data") or {}), (res.get("evidence") or [])
 
 
 def _ctx(state, prior: dict) -> str:
-    from .nodes import _case_file_text  # إعادة استخدام نصّ ملف الدعوى
-    parts = [_case_file_text(state)]
+    from .nodes import _case_file_text  # إعادة استخدام نصّ ملف الدعوى (نسخة القاضي: بلا اتجاه السوابق)
+    parts = [_case_file_text(state, for_judge=True)]
     for k, v in prior.items():
         parts.append(f"[{k}] {v.get('summary', '')}")
     return "\n".join(parts)
@@ -118,58 +124,58 @@ def _ctx(state, prior: dict) -> str:
 
 # ============================ العمليات ============================
 def op_tahrir(state, prior) -> OpResult:
-    d = _call("tahrir", _ctx(state, prior), S_TAHRIR)
+    d, ev = _call("tahrir", _ctx(state, prior), S_TAHRIR)
     issues = [] if d.get("requests") else ["لم تتحدّد طلبات الدعوى."]
-    return OpResult("tahrir", "التحرير", d, [], Verdict(not issues, issues, "عالية"))
+    return OpResult("tahrir", "التحرير", d, [], Verdict(not issues, issues, "عالية"), ev)
 
 
 def op_takyif(state, prior) -> OpResult:
-    d = _call("takyif", _ctx(state, prior), S_TAKYIF,
-              tools=tools_for("search_saudi_codes", "search_commercial_precedents"))
+    d, ev = _call("takyif", _ctx(state, prior), S_TAKYIF,
+                  tools=tools_for("search_saudi_codes", "search_commercial_principles"))
     cites = _cites([d.get("cite")] if d.get("cite") else [])
     issues = []
     for c in cites:
-        st, why = sources.verify_cite(c)
+        st, why = sources.verify_cite(c, ev)
         if st == sources.CiteStatus.FABRICATED:
             issues.append(f"تكييفٌ يستند لمصدرٍ مختلق: {why}")
     conf = "عالية" if not issues else "منخفضة"
-    return OpResult("takyif", "التكييف", d, cites, Verdict(not issues, issues, conf))
+    return OpResult("takyif", "التكييف", d, cites, Verdict(not issues, issues, conf), ev)
 
 
 def op_mahal(state, prior) -> OpResult:
-    d = _call("mahal", _ctx(state, prior), S_MAHAL)
-    return OpResult("mahal", "تحديد محل النزاع", d, [], Verdict(True, [], "عالية"))
+    d, ev = _call("mahal", _ctx(state, prior), S_MAHAL)
+    return OpResult("mahal", "تحديد محل النزاع", d, [], Verdict(True, [], "عالية"), ev)
 
 
 def op_ithbat(state, prior) -> OpResult:
-    d = _call("ithbat", _ctx(state, prior), S_ITHBAT,
-              tools=tools_for("search_saudi_codes"))
+    d, ev = _call("ithbat", _ctx(state, prior), S_ITHBAT,
+                  tools=tools_for("search_saudi_codes"))
     cites, issues = [], []
     for f in d.get("findings", []):
         c = _cites([f.get("basis")])[0] if f.get("basis") else None
         if c:
             cites.append(c)
-            st, why = sources.verify_cite(c)
+            st, why = sources.verify_cite(c, ev)
             if st == sources.CiteStatus.FABRICATED:
                 issues.append(f"إثباتٌ بإسنادٍ مختلق: {why}")
-    return OpResult("ithbat", "الإثبات", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"))
+    return OpResult("ithbat", "الإثبات", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"), ev)
 
 
 def op_tatbiq(state, prior) -> OpResult:
-    d = _call("tatbiq", _ctx(state, prior), S_TATBIQ,
-              tools=tools_for("search_saudi_codes", "search_commercial_precedents"))
+    d, ev = _call("tatbiq", _ctx(state, prior), S_TATBIQ,
+                  tools=tools_for("search_saudi_codes", "search_commercial_principles"))
     cites = _cites([d.get("rule")] if d.get("rule") else [])
     issues = []
     for c in cites:
-        st, why = sources.verify_cite(c)
+        st, why = sources.verify_cite(c, ev)
         if st == sources.CiteStatus.FABRICATED:
             issues.append(f"تطبيقُ قاعدةٍ مختلقة: {why}")
-    return OpResult("tatbiq", "التطبيق", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"))
+    return OpResult("tatbiq", "التطبيق", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"), ev)
 
 
 def op_tasbib(state, prior) -> OpResult:
-    d = _call("tasbib", _ctx(state, prior), S_TASBIB,
-              tools=tools_for("search_saudi_codes", "search_commercial_precedents"))
+    d, ev = _call("tasbib", _ctx(state, prior), S_TASBIB,
+                  tools=tools_for("search_saudi_codes", "search_commercial_principles"))
     cites = _cites(d.get("cites"))
     requests = (prior.get("tahrir") or {}).get("requests", [])
     defenses = (prior.get("mahal") or {}).get("defenses", [])
@@ -181,7 +187,7 @@ def op_tasbib(state, prior) -> OpResult:
     # (3) الردّ على الدفوع الجوهرية
     issues += check_defenses_addressed(defenses, d.get("addressed_defenses", []))
     conf = "عالية" if not issues else "منخفضة"
-    return OpResult("tasbib", "التسبيب والمنطوق", d, cites, Verdict(not issues, issues, conf))
+    return OpResult("tasbib", "التسبيب والمنطوق", d, cites, Verdict(not issues, issues, conf), ev)
 
 
 def op_muraja(results: list[OpResult]) -> OpResult:
@@ -261,7 +267,9 @@ def adjudicate(state) -> dict:
 
     tasbib = prior.get("tasbib", {})
     all_cites = [c for r in results for c in r.cites]
-    grounding = sources.assess_grounding(all_cites)
+    # نصوص المقاطع المُسترجَعة فعلاً عبر العمليات — تُحقَّق بها اقتباسات المبادئ/السوابق.
+    all_evidence = [e for r in results for e in r.evidence]
+    grounding = sources.assess_grounding(all_cites, all_evidence)
 
     flags = list(grounding["issues"]) + list(grounding["uncertainty"])
     for r in results:

@@ -62,8 +62,8 @@ def detect_invoked(state) -> list[str]:
 def adjudicate_incident(state, key: str) -> dict:
     """يفصل في الدفع: توليدٌ مُقيَّد + تحقّقٌ من إسناده. القبول يلزمه إسنادٌ غير مختلق."""
     r = RIGHTS[key]
-    res = get_llm().complete(model=settings.GPT_JUDGE, system=_PROMPT[key],
-                             user=_text(state), schema=INCIDENT_SCHEMA, role=f"incident_{key}")
+    res = get_llm().complete(model=settings.GPT_JUDGE, system=_PROMPT[key], user=_text(state),
+                             schema=INCIDENT_SCHEMA, role=f"incident_{key}", effort=settings.EFFORT_JUDGE)
     d = res.get("data") or {}
     c = d.get("cite") or {}
     cite = Cite(system=c.get("system", ""), article=c.get("article", ""),
