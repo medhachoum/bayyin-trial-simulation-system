@@ -22,7 +22,6 @@ env/
 htmlcov/
 
 # ── Editor / agent local config ─────────────────────────
-.claude/
 .vscode/
 .idea/
 
