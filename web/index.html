@@ -229,7 +229,7 @@ const stage=$('#stage'),world=$('#world'),svg=$('#edges'),insp=$('#inspector'),i
 const statusText=$('#statusText'),dlBanner=$('#dlBanner'),NS='http://www.w3.org/2000/svg';
 let zoom=.9,panX=70,panY=20,nodes=[],edges=[],cur=null,prev=null,selected=null,followActive=true,uid=0,running=false,view='flow',seq=0,stagesSeen=0,total=14;
 let CFG={api_key:'',models:{},efforts:{},prompts:{}},CFG_DEF={models:{},efforts:{},prompts:{},model_suggestions:[],effort_options:[]};
-let overrides={},timelineEvents=[];
+let overrides={},timelineEvents=[],caseMeta={};
 const LANE=2100,NW=220,GAP=152,Y0=120;
 const ROLE_HEX={judge:'#bd8a12',defendant:'#0d9488',plaintiff:'#2563eb',expert:'#7c4ddb',appeal:'#c43d63',system:'#5d6678'};
 const NODEROLE={router:'system',intake_register:'system',research:'judge',rejected:'appeal',referred:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
@@ -329,12 +329,26 @@ function renderInspector(n){const d=n.data;
     if(r.blocked)h+=`<div class="flagbox bad">⛔ حُجِب النطق: حكمٌ مبنيٌّ على إسنادٍ مختلق أو مخالفةٍ جوهرية — لا يُعتدّ به.</div>`;
     if(r.chain&&r.chain.length)h+=`<div class="chain">${r.chain.map(c=>`<div class="op"><span class="${c.ok?'ok':'bd'}">${c.ok?'✓':'⚠'}</span><span class="nm">${escH(c.label)}</span>${c.issues&&c.issues.length?`<span class="bd" style="font-size:11px">${escH(c.issues[0])}</span>`:''}</div>`).join('')}</div>`;
     h+=`<div class="rsec"><h4>الوقائع</h4><p>${escH(r.facts)}</p></div><div class="rsec"><h4>الأسباب</h4><p>${escH(r.reasons)}</p></div><div class="rsec op"><h4>المنطوق</h4><p>${escH(r.operative)}</p></div>${b}`;
-    (r.flags||[]).forEach(f=>h+=`<div class="flagbox ${f.includes('⛔')?'bad':'warn'}">${escH(f)}</div>`);h+=`</div>${cites(r.citations)}`}
+    (r.flags||[]).forEach(f=>h+=`<div class="flagbox ${f.includes('⛔')?'bad':'warn'}">${escH(f)}</div>`);h+=`</div>${cites(r.citations)}<button class="save" id="exportBtn">📄 تصدير الصكّ (Word)</button>`}
   if(d.panel){const vc=v=>v==='تأييد'?'v-up':v==='إلغاء'?'v-rev':'v-mod';const cnt={};d.panel.votes.forEach(v=>cnt[v.vote]=(cnt[v.vote]||0)+1);let cons='تأييد',bs=-1;for(const k in cnt)if(cnt[k]>bs||(cnt[k]===bs&&k==='تأييد')){bs=cnt[k];cons=k}
     h+=`<div class="sec"><span class="seclbl">تصويت الدائرة (عمياء ثمّ مداولة)</span><div class="judges">${d.panel.votes.map(v=>`<div class="jcard"><div class="jlens">${escH(v.lens)}</div><div class="jvote ${vc(v.vote)}">${escH(v.vote)}</div></div>`).join('')}</div><div class="cons">⚖️ الإجماع: ${cons}</div></div>`}
   if(d.outcome){const ok=String(d.outcome).includes('أصاب');h+=`<div class="sec out ${ok?'ok':'bad'}"><div class="big">${ok?'✅':'⚠️'}</div><span class="seclbl" style="justify-content:center">نتيجة التماس إعادة النظر (م.٢٠٠)</span><p>${escH(d.outcome)}</p></div>`}
   inspBody.innerHTML=h;const sb=inspBody.querySelector('#saveBtn');
   if(sb&&d.document)sb.onclick=()=>{overrides[d.document.node_key]=inspBody.querySelector('#editbox').value;statusText.innerHTML=`📝 حُفظ نصّك لـ«${escH(d.document.kind)}» — يُعاد التشغيل…`;runSim()};
+  const eb=inspBody.querySelector('#exportBtn');if(eb&&d.ruling)eb.onclick=()=>exportRuling(d.ruling);
+}
+async function exportRuling(r){
+  const payload={kind:r.kind,facts:r.facts,reasons:r.reasons,operative:r.operative,route:r.route,
+    appealable:r.appealable,confidence:r.confidence,blocked:r.blocked,flags:r.flags||[],
+    chain:(r.chain||[]).map(c=>({label:c.label,ok:c.ok,issues:c.issues||[]})),
+    citations:(r.citations||[]).map(c=>({claim:c.claim,tool:c.tool,ref:c.ref})),meta:caseMeta};
+  try{
+    const resp=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
+    if(!resp.ok)throw new Error('export');
+    const blob=await resp.blob(),url=URL.createObjectURL(blob),a=document.createElement('a');
+    a.href=url;a.download=`bayyin-${caseMeta.case_id||'case'}.docx`;document.body.appendChild(a);a.click();a.remove();URL.revokeObjectURL(url);
+    statusText.textContent='📄 صُدِّر الصكّ إلى ملفّ Word.';
+  }catch(e){statusText.textContent='تعذّر تصدير الصكّ — تأكّد من تشغيل الخادم.';}
 }
 $('#iclose').onclick=()=>{insp.classList.add('closed');selected=null;nodes.forEach(o=>o.el.classList.remove('sel'))};
 $('#cpToggle').onclick=()=>$('#casePanel').classList.toggle('closed');
@@ -354,6 +368,7 @@ function refresh(n){updEdges(n);if(selected===n)renderInspector(n)}
 function markOvr(n){if(n.data.document&&n.data.document.overridden){const dt=n.el.querySelector('.ndate');if(dt&&!dt.querySelector('.novr'))dt.insertAdjacentHTML('beforeend','<span class="novr">📝 معدّل</span>')}}
 function handle(ev){switch(ev.type){
   case 'start': nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=selected=null;seq=0;followActive=true;timelineEvents=[];insp.classList.add('closed');dlBanner.style.display='none';world.querySelectorAll('.lane-h').forEach(e=>e.remove());drawLanes();drawMM();stagesSeen=0;total=(ev.rail||[]).length||14;$('#progbar').style.width='0%';$('#busy').style.display='';
+    caseMeta={case_id:ev.case_id,case_type:ev.case_type,value:ev.value,filing:(ev.filing||{}).hijri||''};
     statusText.innerHTML=`بدأت — <b>${escH(ev.case_id)}</b> · القيد ${escH((ev.filing||{}).hijri||'')} · ${ev.mock?'وهمي':'حقيقي'}`;break;
   case 'stage':{const n=makeNode(ev.node,ev.label,ev.icon,ev.date);setActive(n);if(view==='flow')panTo(n);if(followActive)selectNode(n);timelineEvents.push({label:ev.label,icon:ev.icon,node:ev.node,date:ev.date,ref:n});if(view==='calendar')renderCalendar();stagesSeen++;$('#progbar').style.width=Math.min(100,Math.round(stagesSeen/total*100))+'%';statusText.innerHTML=`الآن: <b>${escH(ev.label)}</b>${ev.date&&ev.date.hijri?(' · '+escH(ev.date.hijri)):''}`;break}
   case 'log': if(cur){cur.data.actor=ev.actor||cur.data.actor;if(ev.model)cur.data.model=ev.model;cur.data.logs.push({action:ev.action,detail:ev.detail});applyActor(cur);if(selected===cur)renderInspector(cur)}break;

@@ -227,3 +227,61 @@ def test_noncommercial_referred_not_rejected():
     assert final.get("referral_decision") and "الاختصاص النوعي" in final["referral_decision"]
     assert not final.get("research")        # لم يُجرَ البحث
     assert final.get("judgment") is None     # لا حكم موضوعي — أُحيلت لا رُدّت
+
+
+# ---------- ② الاستئناف عبر بوابة التأصيل ----------
+def test_appellate_ruling_is_grounded_and_final():
+    from bayyin import panel
+    from bayyin.state import Citation, Ruling
+    state = _graph_state()
+    state["judgment"] = Ruling(facts="وقائع", reasons="أسباب", operative="إلزام المدعى عليه بالمبلغ",
+                               citations=[Citation(claim="c", source_tool="نظام المعاملات المدنية", source_ref="العقد")],
+                               appealable=True, direction="للمدعي")
+    state["document_ledger"].append(Document(doc_type=DocType.APPEAL_BRIEF, author_role="مستأنف",
+                                             title="اعتراض", body="أعترض على الحكم."))
+    upd = panel.run_panel(state)
+    aj = upd["appeal_judgment"]
+    assert len(upd["panel_votes"]) == 3
+    assert aj.citations and aj.blocked is False        # خضع لبوابة التأصيل ومرّ
+    assert aj.confidence in ("عالية", "متوسطة")
+    assert aj.appealable is False and aj.appeal_route == "نهائي"
+
+
+# ---------- ③ تصدير الصك (DOCX) ----------
+def test_export_docx_builds_valid_file():
+    from bayyin.export_docx import build_ruling_docx
+    data = build_ruling_docx({
+        "kind": "الحكم الابتدائي", "facts": "وقائع الدعوى", "reasons": "أسباب الحكم",
+        "operative": "إلزام المدعى عليه بأداء المبلغ", "confidence": "عالية",
+        "route": "التماس إعادة النظر", "appealable": False, "blocked": False,
+        "citations": [{"claim": "وجوب الوفاء", "tool": "نظام المعاملات المدنية", "ref": "العقد"}],
+        "chain": [{"label": "التحرير", "ok": True, "issues": []}], "flags": [],
+        "meta": {"case_id": "TC-1", "case_type": "تجاري", "value": 250000}})
+    assert isinstance(data, bytes) and data[:2] == b"PK" and len(data) > 1500   # ملفّ DOCX (zip)
+
+
+# ---------- ④ مرونة الوضع الحقيقي (إعادة المحاولة) ----------
+def test_llm_retries_on_transient_error(monkeypatch):
+    from bayyin import llm, settings as st
+    monkeypatch.setattr(st, "LLM_MAX_RETRIES", 3)
+    monkeypatch.setattr("time.sleep", lambda *a, **k: None)
+
+    class Boom(Exception):
+        pass
+
+    o = llm.OpenAILLM.__new__(llm.OpenAILLM)   # تجاوز __init__ (لا عميل حقيقي)
+    o._transient = (Boom,)
+    calls = {"n": 0}
+
+    class _Resp:
+        class responses:
+            @staticmethod
+            def create(**k):
+                calls["n"] += 1
+                if calls["n"] < 2:
+                    raise Boom("عابر")
+                return type("R", (), {"output_text": "ok"})()
+
+    o.client = _Resp()
+    r = o._create({"model": "m"})
+    assert calls["n"] == 2 and r.output_text == "ok"   # فشلت مرّةً ثم نجحت

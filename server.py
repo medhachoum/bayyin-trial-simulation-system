@@ -13,7 +13,7 @@ import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
-from fastapi.responses import HTMLResponse, StreamingResponse
+from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
 from bayyin import config, nodes, settings, timeline
 from bayyin.graph import build_graph
@@ -133,6 +133,20 @@ def index() -> HTMLResponse:
 def get_config() -> dict:
     """الافتراضيات (النماذج والمطالبات) لتعبئة صفحة الإعدادات — لا تبدأ فارغة."""
     return config.defaults()
+
+
+@app.post("/api/export")
+async def export_ruling(request: Request) -> Response:
+    """تصدير صكّ الحكم إلى ملفّ Word (DOCX) منسّقٍ بالعربية."""
+    body = await request.json()
+    from bayyin.export_docx import build_ruling_docx
+    data = build_ruling_docx(body)
+    cid = "".join(ch for ch in str((body.get("meta") or {}).get("case_id", "case"))
+                  if ch.isalnum() or ch in "-_") or "case"
+    return Response(
+        content=data,
+        media_type="application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+        headers={"Content-Disposition": f'attachment; filename="bayyin-{cid}.docx"'})
 
 
 @app.post("/api/run")

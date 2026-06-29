@@ -63,9 +63,28 @@ class OpenAILLM:
             load_dotenv()
         except Exception:
             pass
+        import openai
         from openai import OpenAI
         key = getattr(settings, "RUNTIME_API_KEY", None)
         self.client = OpenAI(api_key=key) if key else OpenAI()
+        # أخطاءٌ عابرةٌ تستحقّ إعادة المحاولة (لا الدائمة كـ BadRequest/Authentication).
+        self._transient = tuple(e for e in (
+            getattr(openai, "RateLimitError", None), getattr(openai, "APITimeoutError", None),
+            getattr(openai, "APIConnectionError", None), getattr(openai, "InternalServerError", None),
+        ) if e is not None) or (Exception,)
+
+    def _create(self, kwargs: dict):
+        """نداء Responses مع إعادة محاولةٍ على الأخطاء العابرة (تراجعٌ أُسّيٌّ + عشوائية خفيفة)."""
+        import random
+        import time
+        attempts = max(1, int(getattr(settings, "LLM_MAX_RETRIES", 3)))
+        for i in range(attempts):
+            try:
+                return self.client.responses.create(**kwargs)
+            except self._transient:
+                if i == attempts - 1:
+                    raise
+                time.sleep(min(8.0, (2 ** i) * 0.8) + random.uniform(0.0, 0.4))
 
     def complete(self, *, model: str, system: str, user: str,
                  tools: list[dict] | None = None, schema: dict | None = None,
@@ -85,7 +104,7 @@ class OpenAILLM:
                     "strict": True,
                 }
             }
-        resp = self.client.responses.create(**kwargs)
+        resp = self._create(kwargs)
         text = getattr(resp, "output_text", "") or ""
         data = None
         if schema is not None and text:
@@ -203,7 +222,10 @@ def _mock_panel(user: str) -> dict:
     # تصويت حتمي حسب عدسة القاضي نفسه (المعلَّمة بـ «...»)، لا آراء زملائه.
     vote = "تعديل" if "«الإنصاف" in user else "تأييد"
     return {"text": "", "data": {"vote": vote,
-            "opinion": f"بعد مراجعة أوراق الدعوى وأسباب الاعتراض، أرى {vote} الحكم المستأنف."}}
+            "opinion": f"بعد مراجعة أوراق الدعوى وأسباب الاعتراض، أرى {vote} الحكم المستأنف.",
+            "cites": [{"system": "نظام المرافعات الشرعية", "article": "الاستئناف",
+                       "quote": "تنظر محكمة الاستئناف الحكم المستأنف بناءً على أسباب الاعتراض فتؤيّده أو تلغيه أو تعدّله",
+                       "claim": "اختصاص محكمة الاستئناف بمراجعة الحكم المستأنف"}]}}
 
 
 # --- محاكاة العمليات الاستدلالية السبع (قضية توريد متّسقة تنتهي بحكمٍ مؤصَّل) ---
