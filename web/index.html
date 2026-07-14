@@ -152,6 +152,10 @@
   .flagbox{margin-top:9px;font-size:12px;border-radius:9px;padding:8px 11px} .flagbox.warn{color:#8a5d00;background:#fdf6e6;border:1px solid #f0e2bb} .flagbox.bad{color:var(--bad);background:#fce7ef;border:1px solid #f6cdd9}
   .cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px} .chip{font-size:11px;color:#7a5d10;background:#fbf3df;border:1px solid #eedfb6;border-radius:999px;padding:4px 9px}
   .chip .cst{font-weight:800} .chip.c-ok{color:#0e7a52;background:#e6f6ee;border-color:#9fe1cb} .chip.c-un{color:#9a7b1b;background:#fbf3df;border-color:#eedfb6} .chip.c-fab{color:#b23a5b;background:#fdeef2;border-color:#f4c0d1}
+  .diffbox{border:1px solid #d7c9ee;background:#faf7ff}
+  .wdiff{white-space:pre-wrap;line-height:1.9;font-size:13px} .wdiff ins{background:#d8f5e6;color:#0e7a52;text-decoration:none;border-radius:3px;padding:0 2px} .wdiff del{background:#fde0e8;color:#b23a5b;text-decoration:line-through;border-radius:3px;padding:0 2px}
+  .runrow{display:flex;align-items:center;gap:9px;border:1px solid var(--bd);border-radius:11px;padding:9px 12px;margin-bottom:7px;background:#fbfcfe} .runrow:hover{border-color:var(--primary)} .runrow .rt{font-weight:700;font-size:13px;color:var(--txt);flex:1;cursor:pointer} .runrow .rm{font-size:11px;color:var(--muted)} .runrow button{border:1px solid var(--bd2);background:#fff;border-radius:8px;padding:4px 9px;cursor:pointer;font-size:12px} .runrow .del{color:var(--bad)}
+  .cases-empty{color:var(--muted);text-align:center;padding:24px 0}
   .rsec{margin-top:9px;border:1px solid var(--bd);border-radius:11px;padding:11px 13px;background:#fbfcfe} .rsec.op{border-color:#efe1bb;background:#fdf8ec} .rsec h4{margin:0 0 5px;font-size:12px;color:var(--judge)} .rsec p{margin:0;white-space:pre-wrap;line-height:1.9;font-size:13px;color:var(--txt2)}
   .badge{display:inline-block;margin-top:10px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px} .badge.yes{color:var(--plaintiff);background:#e8f0fe;border:1px solid #cfe0fd} .badge.no{color:#9a7b1b;background:#fbf3df;border:1px solid #efe1bb}
   .conf{display:inline-block;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:999px;margin-inline-start:6px} .conf.hi{color:#0e7a52;background:#e6f6ee} .conf.mid{color:#8a5d00;background:#fdf6e6} .conf.lo{color:var(--bad);background:#fce7ef} .conf.blk{color:#fff;background:var(--bad)}
@@ -175,6 +179,7 @@
     <button class="hbtn" id="zin" title="تكبير">＋</button>
     <button class="hbtn" id="zout" title="تصغير">－</button>
     <button class="hbtn" id="zfit" title="ملاءمة الكل">⛶</button>
+    <button class="hbtn" id="casesBtn" title="قضاياي المحفوظة">📁</button>
     <button class="hbtn" id="openSettings" title="الإعدادات">⚙️</button>
     <label class="toggle"><input type="checkbox" id="real"> حقيقي <span class="spin" id="busy" style="display:none"></span></label>
     <label class="toggle" title="تجاهل التخزين وأعد توليد كل العقد من جديد"><input type="checkbox" id="fresh"> 🔄 توليد جديد</label>
@@ -185,7 +190,7 @@
 
   <div class="main">
     <aside id="casePanel">
-      <div class="cp-h">📋 بيانات الدعوى <button class="preset" style="margin-inline-start:auto" id="clearOv">🗑️ التعديلات</button></div>
+      <div class="cp-h">📋 بيانات الدعوى <button class="preset" id="uploadBtn" style="margin-inline-start:auto">📎 مستند</button><button class="preset" id="saveCaseBtn">💾 احفظ</button><button class="preset" id="clearOv">🗑️ التعديلات</button></div>
       <div class="cp-b">
         <div class="presets"><button class="preset" data-preset="commercial">قضية توريد</button><button class="preset" data-preset="prescription">دفعٌ بالتقادم</button><button class="preset" data-preset="training">وضع تدريب</button></div>
         <div class="fld"><label>موضوع الدعوى</label><input id="f_subject"></div>
@@ -193,7 +198,7 @@
         <div class="row2"><div class="fld"><label>المدعي</label><input id="f_plaintiff"></div><div class="fld"><label>المدعى عليه</label><input id="f_defendant"></div></div>
         <div class="fld"><label>تاريخ استحقاق الالتزام (لحساب التقادم حساباً)</label><input id="f_due" type="date"></div>
         <div class="fld"><label>الوقائع / العقد (حرّرها لتغيّر مجرى الحكم)</label><textarea id="f_claim"></textarea></div>
-        <div class="fld"><label>ردّ المدعي</label><textarea id="f_reply"></textarea></div>
+        <div class="fld"><label>ردّ المدعي (سطرٌ لكل جولة — تفاعلٌ متعدّد الجولات)</label><textarea id="f_reply"></textarea></div>
         <div class="opts">
           <label class="toggle"><input type="checkbox" id="f_appeal"> طلب الاستئناف بعد الحكم</label>
           <label class="toggle"><input type="checkbox" id="f_training"> وضع التدريب (تُحقن ثغرةٌ عشوائيةٌ خفية)</label>
@@ -227,6 +232,22 @@
     <div class="sheet-f"><button class="run" id="saveSettings">💾 حفظ</button><button class="hbtn" id="resetSettings">استعادة الافتراضي</button></div>
   </div></div>
 
+  <div class="modal" id="casesModal"><div class="sheet">
+    <div class="sheet-h">📁 قضاياي المحفوظة <button class="iclose" id="closeCases" style="margin-inline-start:auto">✕</button></div>
+    <div class="sheet-b" id="casesBody"></div>
+    <div class="sheet-f"><button class="hbtn" id="clearCases">🗑️ مسح الكل</button><span class="keyhint" style="margin-inline-start:auto">تُحفظ في متصفّحك فقط — لا تُرفع للخادم.</span></div>
+  </div></div>
+
+  <div class="modal" id="uploadModal"><div class="sheet" style="width:560px">
+    <div class="sheet-h">📎 رفع عقدٍ أو مستند (PDF/نص) <button class="iclose" id="closeUpload" style="margin-inline-start:auto">✕</button></div>
+    <div class="sheet-b" id="uploadBody">
+      <div class="keyhint">يُستخرج النصّ ويُدرَج في «الوقائع/العقد». يُعالَج على الخادم محلياً ولا يُخزَّن.</div>
+      <div class="fld"><input type="file" id="uploadFile" accept=".pdf,.txt"></div>
+      <div id="uploadStatus" class="note" style="display:none"></div>
+    </div>
+    <div class="sheet-f"><button class="run" id="doUpload">📎 استخرج وأدرِج</button></div>
+  </div></div>
+
 <script>
 const $=s=>document.querySelector(s);
 const stage=$('#stage'),world=$('#world'),svg=$('#edges'),insp=$('#inspector'),inspBody=insp.querySelector('.insp-body');
@@ -250,9 +271,9 @@ const PRESETS={
   prescription:{subject:'مطالبة مالية قديمة',value:80000,filing:'2026-03-01',plaintiff:'خالد',defendant:'ماجد',claim:'يطالب المدعي بمبلغ 80,000 ريال عن معاملةٍ قديمة.',reply:'أتمسّك بطلبي.',appeal:false,training:false,recon:false,defenseOverride:'المذكرة الجوابية: أدفع بأن الدعوى سقطت بالتقادم لمضي المدة النظامية دون مطالبة، وأطلب الحكم بعدم سماعها.'},
   training:{subject:'مطالبة بمبلغ قرض',value:20000,filing:'2026-02-01',plaintiff:'فهد',defendant:'سالم',claim:'يطالب المدعي المدعى عليه بسداد قرضٍ قدره 20,000 ريال.',reply:'أتمسّك بطلبي.',appeal:false,training:true,recon:true}
 };
-function fillForm(p){$('#f_subject').value=p.subject;$('#f_value').value=p.value;$('#f_filing').value=p.filing;$('#f_plaintiff').value=p.plaintiff;$('#f_defendant').value=p.defendant;$('#f_claim').value=p.claim;$('#f_reply').value=p.reply;$('#f_appeal').checked=p.appeal;$('#f_training').checked=p.training;$('#f_recon').checked=p.recon;overrides={};if(p.defenseOverride)overrides['defendant_plea-1']=p.defenseOverride;}
-fillForm(PRESETS.commercial);
-document.querySelectorAll('.preset[data-preset]').forEach(b=>b.onclick=()=>fillForm(PRESETS[b.dataset.preset]));
+function fillForm(p){$('#f_subject').value=p.subject;$('#f_value').value=p.value;$('#f_filing').value=p.filing;$('#f_plaintiff').value=p.plaintiff;$('#f_defendant').value=p.defendant;$('#f_claim').value=p.claim;$('#f_reply').value=p.reply;$('#f_appeal').checked=p.appeal;$('#f_training').checked=p.training;$('#f_recon').checked=p.recon;$('#reconWrap').style.display=p.recon?'':'none';overrides={};if(p.defenseOverride)overrides['defendant_plea-1']=p.defenseOverride;}
+try{const _dr=JSON.parse(localStorage.getItem('bayyin_draft')||'null');if(_dr)restoreForm(_dr);else fillForm(PRESETS.commercial);}catch(e){fillForm(PRESETS.commercial);}
+document.querySelectorAll('.preset[data-preset]').forEach(b=>b.onclick=()=>{fillForm(PRESETS[b.dataset.preset]);persistDraft();});
 $('#clearOv').onclick=()=>{overrides={};statusText.textContent='مُسحت التعديلات. شغّل من جديد.'};
 
 /* تبديل العرض */
@@ -335,7 +356,14 @@ function renderInspector(n){const d=n.data;
     if(r.blocked)h+=`<div class="flagbox bad">⛔ حُجِب النطق: حكمٌ مبنيٌّ على إسنادٍ مختلق أو مخالفةٍ جوهرية — لا يُعتدّ به.</div>`;
     if(r.chain&&r.chain.length)h+=`<div class="chain">${r.chain.map(c=>`<div class="op"><span class="${c.ok?'ok':'bd'}">${c.ok?'✓':'⚠'}</span><span class="nm">${escH(c.label)}</span>${c.issues&&c.issues.length?`<span class="bd" style="font-size:11px">${escH(c.issues[0])}</span>`:''}</div>`).join('')}</div>`;
     h+=`<div class="rsec"><h4>الوقائع</h4><p>${escH(r.facts)}</p></div><div class="rsec"><h4>الأسباب</h4><p>${escH(r.reasons)}</p></div><div class="rsec op"><h4>المنطوق</h4><p>${escH(r.operative)}</p></div>${b}`;
-    (r.flags||[]).forEach(f=>h+=`<div class="flagbox ${f.includes('⛔')?'bad':'warn'}">${escH(f)}</div>`);h+=`</div>${cites(r.citations)}<button class="save" id="exportBtn">📄 تصدير الصكّ (Word)</button>`}
+    (r.flags||[]).forEach(f=>h+=`<div class="flagbox ${f.includes('⛔')?'bad':'warn'}">${escH(f)}</div>`);h+=`</div>${cites(r.citations)}<button class="save" id="exportBtn">📄 تصدير الصكّ (Word)</button>`;
+    if(prevRunJudgment&&/ابتدائي/.test(r.kind||'')){const p=prevRunJudgment;const changed=p.operative!==r.operative||p.reasons!==r.reasons||p.confidence!==r.confidence||p.direction!==r.direction;
+      h+=`<div class="sec diffbox"><span class="seclbl">🔀 المقارنة بالتشغيل السابق</span>`;
+      if(!changed)h+=`<div class="note">لا تغيّر في الحكم عن التشغيل السابق.</div>`;
+      else{if(p.direction!==r.direction||p.confidence!==r.confidence)h+=`<div class="note">الاتجاه: ${escH(p.direction||'—')} ← <b>${escH(r.direction||'—')}</b> · الثقة: ${escH(p.confidence||'—')} ← <b>${escH(r.confidence||'—')}</b></div>`;
+        h+=`<div class="rsec op"><h4>المنطوق (تتبّع التغيير)</h4><p class="wdiff">${wdiff(p.operative,r.operative)}</p></div>`;
+        if(p.reasons!==r.reasons)h+=`<div class="rsec"><h4>الأسباب (تتبّع التغيير)</h4><p class="wdiff">${wdiff(p.reasons,r.reasons)}</p></div>`;}
+      h+=`</div>`;}}
   if(d.panel){const vc=v=>v==='تأييد'?'v-up':v==='إلغاء'?'v-rev':'v-mod';const cnt={};d.panel.votes.forEach(v=>cnt[v.vote]=(cnt[v.vote]||0)+1);let cons='تأييد',bs=-1;for(const k in cnt)if(cnt[k]>bs||(cnt[k]===bs&&k==='تأييد')){bs=cnt[k];cons=k}
     h+=`<div class="sec"><span class="seclbl">تصويت الدائرة (عمياء ثمّ مداولة)</span><div class="judges">${d.panel.votes.map(v=>`<div class="jcard"><div class="jlens">${escH(v.lens)}</div><div class="jvote ${vc(v.vote)}">${escH(v.vote)}</div></div>`).join('')}</div><div class="cons">⚖️ الإجماع: ${cons}</div></div>`}
   if(d.outcome){const ok=String(d.outcome).includes('أصاب');h+=`<div class="sec out ${ok?'ok':'bad'}"><div class="big">${ok?'✅':'⚠️'}</div><span class="seclbl" style="justify-content:center">نتيجة التماس إعادة النظر (م.٢٠٠)</span><p>${escH(d.outcome)}</p></div>`}
@@ -379,6 +407,7 @@ function refresh(n){updEdges(n);if(selected===n)renderInspector(n)}
 function markOvr(n){if(n.data.document&&n.data.document.overridden){const dt=n.el.querySelector('.ndate');if(dt&&!dt.querySelector('.novr'))dt.insertAdjacentHTML('beforeend','<span class="novr">📝 معدّل</span>')}}
 function handle(ev){switch(ev.type){
   case 'start': nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=selected=null;seq=0;followActive=true;timelineEvents=[];insp.classList.add('closed');dlBanner.style.display='none';world.querySelectorAll('.lane-h').forEach(e=>e.remove());drawLanes();drawMM();stagesSeen=0;total=(ev.rail||[]).length||14;$('#progbar').style.width='0%';$('#busy').style.display='';
+    if(!replaying)prevRunJudgment=lastSavedJudgment();  // للمقارنة: حكم التشغيل السابق
     caseMeta={case_id:ev.case_id,case_type:ev.case_type,value:ev.value,filing:(ev.filing||{}).hijri||''};
     statusText.innerHTML=`بدأت — <b>${escH(ev.case_id)}</b> · القيد ${escH((ev.filing||{}).hijri||'')} · ${ev.mock?'وهمي':'حقيقي'}`;break;
   case 'stage':{const n=makeNode(ev.node,ev.label,ev.icon,ev.date);setActive(n);if(view==='flow')panTo(n);if(followActive)selectNode(n);timelineEvents.push({label:ev.label,icon:ev.icon,node:ev.node,date:ev.date,ref:n});if(view==='calendar')renderCalendar();stagesSeen++;$('#progbar').style.width=Math.min(100,Math.round(stagesSeen/total*100))+'%';statusText.innerHTML=`الآن: <b>${escH(ev.label)}</b>${ev.date&&ev.date.hijri?(' · '+escH(ev.date.hijri)):''}`;break}
@@ -390,16 +419,68 @@ function handle(ev){switch(ev.type){
   case 'outcome': if(cur){cur.data.outcome=ev.text;refresh(cur)}break;
   case 'deadline': dlBanner.style.display='';dlBanner.innerHTML=`⏳ ${escH(ev.label)}: <b>${escH((ev.date||{}).hijri||'')}</b>`;timelineEvents.push({label:ev.label,icon:'⏳',node:'',date:ev.date,deadline:true});if(view==='calendar')renderCalendar();break;
   case 'error':{const n=makeNode('rejected','خطأ في التشغيل','⚠️');setActive(n);n.data.document={kind:'خطأ',body:ev.message,node_key:'',citations:[]};selectNode(n);break}
-  case 'done': finalizePrev();statusText.innerHTML='✔ انتهت الجلسة — انقر عقدة لتحرير نصّها وإعادة التشغيل، أو افتح 📅 التقويم.';$('#progbar').style.width='100%';$('#busy').style.display='none';running=false;$('#run').disabled=false;break;
+  case 'done': finalizePrev();statusText.innerHTML='✔ انتهت الجلسة — انقر عقدة لتحرير نصّها وإعادة التشغيل، أو افتح 📅 التقويم.';$('#progbar').style.width='100%';$('#busy').style.display='none';running=false;$('#run').disabled=false;if(!replaying)saveRun();break;
 }}
 
+/* ===== الحفظ والاستعادة والمقارنة (كلّها في المتصفّح — لا تُرفع للخادم) ===== */
+function snapshotForm(){return {subject:$('#f_subject').value,value:$('#f_value').value,filing:$('#f_filing').value,due:($('#f_due')||{}).value||'',plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim:$('#f_claim').value,reply:$('#f_reply').value,appeal:$('#f_appeal').checked,training:$('#f_training').checked,recon:$('#f_recon').checked,recon_ground:($('#f_recon_ground')||{}).value||'',overrides:JSON.parse(JSON.stringify(overrides||{}))};}
+function restoreForm(d){if(!d)return;$('#f_subject').value=d.subject||'';$('#f_value').value=d.value||'';$('#f_filing').value=d.filing||'';if($('#f_due'))$('#f_due').value=d.due||'';$('#f_plaintiff').value=d.plaintiff||'';$('#f_defendant').value=d.defendant||'';$('#f_claim').value=d.claim||'';$('#f_reply').value=d.reply||'';$('#f_appeal').checked=!!d.appeal;$('#f_training').checked=!!d.training;$('#f_recon').checked=!!d.recon;$('#reconWrap').style.display=d.recon?'':'none';if(d.recon_ground&&$('#f_recon_ground'))$('#f_recon_ground').value=d.recon_ground;overrides=d.overrides||{};}
+function persistDraft(){try{localStorage.setItem('bayyin_draft',JSON.stringify(snapshotForm()))}catch(e){}}
+function loadRuns(){try{return JSON.parse(localStorage.getItem('bayyin_runs')||'[]')||[]}catch(e){return[]}}
+function judgmentOf(events){return (events||[]).find(e=>e.type==='ruling'&&/ابتدائي/.test(e.kind||''))||null;}
+function lastSavedJudgment(){const r=loadRuns()[0];return r?judgmentOf(r.events):null;}
+function saveRun(){if(!runEvents.length)return;const j=judgmentOf(runEvents);
+  const rec={id:'r'+Date.now(),ts:Date.now(),subject:$('#f_subject').value||caseMeta.case_id||'قضية',value:caseMeta.value,
+    outcome:j?(j.blocked?'⛔ محجوب':(j.direction||j.route||'—')):'—',form:snapshotForm(),events:runEvents.slice()};
+  let runs=loadRuns();runs.unshift(rec);runs=runs.slice(0,12);
+  try{localStorage.setItem('bayyin_runs',JSON.stringify(runs))}
+  catch(e){try{localStorage.setItem('bayyin_runs',JSON.stringify(runs.slice(0,4)))}catch(_){}}
+  persistDraft();}
+function replayRun(rec){if(running||!rec||!rec.events)return;replaying=true;prevRunJudgment=null;
+  try{if(rec.form)restoreForm(rec.form);for(const ev of rec.events){try{handle(ev)}catch(e){}}}
+  finally{replaying=false;running=false;$('#run').disabled=false;$('#busy').style.display='none';$('#stopBtn').style.display='none';}
+  statusText.innerHTML='↩️ استُعيدت جلسةٌ محفوظة — اضغط «شغّل» لبدء جديد، أو حرّر عقدةً وأعد التشغيل.';}
+/* مقارنة الكلمات (LCS) لتتبّع تغيّر المنطوق بين تشغيلين */
+function wdiff(a,b){a=String(a||'').split(/(\s+)/);b=String(b||'').split(/(\s+)/);const n=a.length,m=b.length;
+  const dp=Array.from({length:n+1},()=>new Int16Array(m+1));
+  for(let i=n-1;i>=0;i--)for(let j=m-1;j>=0;j--)dp[i][j]=a[i]===b[j]?dp[i+1][j+1]+1:Math.max(dp[i+1][j],dp[i][j+1]);
+  let i=0,j=0,o='';while(i<n&&j<m){if(a[i]===b[j]){o+=escH(b[j]);i++;j++;}else if(dp[i+1][j]>=dp[i][j+1]){o+=`<del>${escH(a[i])}</del>`;i++;}else{o+=`<ins>${escH(b[j])}</ins>`;j++;}}
+  while(i<n){o+=`<del>${escH(a[i])}</del>`;i++;}while(j<m){o+=`<ins>${escH(b[j])}</ins>`;j++;}return o;}
+/* نافذة «قضاياي» */
+function openCases(){const runs=loadRuns();const b=$('#casesBody');
+  b.innerHTML=runs.length?runs.map((r,i)=>`<div class="runrow"><div class="rt" data-i="${i}">${escH(r.subject)}</div><span class="rm">${new Date(r.ts).toLocaleString('ar')} · ${escH(r.outcome||'')}</span><button data-open="${i}">↩️ استعرض</button><button class="del" data-del="${i}">حذف</button></div>`).join(''):'<div class="cases-empty">لا قضايا محفوظة بعد — كل تشغيلٍ يُحفظ تلقائياً هنا.</div>';
+  b.querySelectorAll('[data-open],.rt').forEach(el=>el.onclick=()=>{const i=+(el.dataset.open??el.dataset.i);$('#casesModal').classList.remove('open');replayRun(runs[i]);});
+  b.querySelectorAll('[data-del]').forEach(el=>el.onclick=()=>{const rs=loadRuns();rs.splice(+el.dataset.del,1);localStorage.setItem('bayyin_runs',JSON.stringify(rs));openCases();});
+  $('#casesModal').classList.add('open');}
+$('#casesBtn').onclick=openCases;
+$('#closeCases').onclick=()=>$('#casesModal').classList.remove('open');
+$('#casesModal').onclick=e=>{if(e.target.id==='casesModal')e.currentTarget.classList.remove('open')};
+$('#clearCases').onclick=()=>{if(confirm('مسح كل القضايا المحفوظة؟')){localStorage.removeItem('bayyin_runs');openCases();}};
+$('#saveCaseBtn').onclick=()=>{persistDraft();statusText.textContent='💾 حُفظت بيانات القضية في متصفّحك.';};
+/* رفع مستند (PDF/نص) → استخراج نصّه في «الوقائع/العقد» */
+async function doUploadFn(){const f=$('#uploadFile').files[0],st=$('#uploadStatus');st.style.display='';
+  if(!f){st.textContent='اختر ملفاً أولاً.';return;}
+  if(f.size>10*1024*1024){st.textContent='الملف كبيرٌ جداً (>10MB).';return;}
+  st.textContent='⏳ استخراج النصّ…';
+  try{const buf=await f.arrayBuffer();
+    const resp=await fetch('/api/upload',{method:'POST',headers:{'Content-Type':f.type||'application/octet-stream'},body:buf});
+    if(!resp.ok)throw new Error('HTTP '+resp.status);const d=await resp.json();
+    if(d.text){$('#f_claim').value=d.text;persistDraft();st.textContent=`✅ أُدرِج ${d.chars} حرفاً في «الوقائع/العقد».`+(d.warning?(' ⚠️ '+d.warning):'');setTimeout(()=>$('#uploadModal').classList.remove('open'),1600);}
+    else st.textContent='⚠️ '+(d.warning||'لم يُستخرَج نص.');
+  }catch(e){st.textContent='تعذّر الرفع — تأكّد من تشغيل الخادم.';}}
+$('#uploadBtn').onclick=()=>{$('#uploadStatus').style.display='none';$('#uploadModal').classList.add('open');};
+$('#closeUpload').onclick=()=>$('#uploadModal').classList.remove('open');
+$('#uploadModal').onclick=e=>{if(e.target.id==='uploadModal')e.currentTarget.classList.remove('open')};
+$('#doUpload').onclick=doUploadFn;
+['f_subject','f_value','f_filing','f_due','f_plaintiff','f_defendant','f_claim','f_reply','f_appeal','f_training','f_recon'].forEach(id=>{const el=$('#'+id);if(el)el.addEventListener('change',persistDraft);});
+
 /* البثّ عبر POST — بفحص الاستجابة، وإلغاءٍ من المستخدم، وكشف انقطاع البث */
-let currentAbort=null,pendingRestart=false,sawDone=false;
-async function streamRun(body){currentAbort=new AbortController();
+let currentAbort=null,pendingRestart=false,sawDone=false,runEvents=[],replaying=false,prevRunJudgment=null;
+async function streamRun(body){currentAbort=new AbortController();runEvents=[];
   const resp=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:currentAbort.signal});
   if(!resp.ok)throw new Error('HTTP '+resp.status);
   const reader=resp.body.getReader(),dec=new TextDecoder();let buf='';sawDone=false;
-  while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{const ev=JSON.parse(line.slice(5).trim());if(ev.type==='done')sawDone=true;handle(ev)}catch(e){console.error(e)}}}}
+  while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{const ev=JSON.parse(line.slice(5).trim());if(ev.type!=='wait')runEvents.push(ev);if(ev.type==='done')sawDone=true;handle(ev)}catch(e){console.error(e)}}}}
   if(!sawDone)statusText.innerHTML='⚠️ انقطع البثّ قبل اكتمال المحاكاة — أعد التشغيل.';}
 function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0:0.45,fresh:$('#fresh').checked,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,obligation_due_date:$('#f_due').value||undefined,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:$('#f_recon_ground').value||'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,efforts:CFG.efforts,prompts:CFG.prompts}}}
 async function runSim(){if(running)return;running=true;$('#run').disabled=true;$('#stopBtn').style.display='';if(view!=='flow')setView('flow');nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=null;seq=0;
@@ -442,6 +523,8 @@ $('#closeSettings').onclick=()=>$('#settingsModal').classList.remove('open');
 $('#settingsModal').onclick=e=>{if(e.target.id==='settingsModal')e.currentTarget.classList.remove('open')};
 $('#saveSettings').onclick=saveSettings;$('#resetSettings').onclick=resetSettings;
 loadConfig();
+/* استعادة آخر جلسةٍ بعد تحديث الصفحة (لا تضيع دقائق العمل) */
+try{const _runs=loadRuns();if(_runs[0])setTimeout(()=>{if(!running&&!nodes.length)replayRun(_runs[0]);},80);}catch(e){}
 </script>
 </body>
 </html>

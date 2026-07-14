@@ -448,6 +448,22 @@ def test_memo_citations_are_labeled():
     assert out2[0].status == "مؤصَّل"
 
 
+# ---------- الخادم: تحمّل عقدةٍ بلا تحديث (updates=None) ----------
+def test_events_for_tolerates_none_delta():
+    import server
+    evs = server.events_for("incidents", None)   # إعادة دخولٍ محروسة → None في وضع updates
+    assert isinstance(evs, list) and evs and evs[0]["type"] == "stage"
+    assert server.events_for("nonexistent_node", None) == []
+
+
+def test_build_state_splits_multiround_plaintiff_replies():
+    import server
+    st, _ = server.build_state({"case": {"plaintiff_reply": "الجولة الأولى.\n\nالجولة الثانية."}})
+    assert st["scripted_plaintiff_replies"] == ["الجولة الأولى.", "الجولة الثانية."]
+    st2, _ = server.build_state({"case": {}})
+    assert len(st2["scripted_plaintiff_replies"]) == 1   # افتراضيٌّ واحد
+
+
 # ---------- ④ مرونة الوضع الحقيقي (إعادة المحاولة) ----------
 def test_llm_retries_on_transient_error(monkeypatch):
     from bayyin import llm, settings as st

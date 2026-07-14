@@ -72,8 +72,9 @@ def build_state(body: dict) -> tuple[dict, str]:
         "parties": [Party(role="مدعي", name=c.get("plaintiff") or "المدعي", is_human=True),
                     Party(role="مدعى عليه", name=c.get("defendant") or "المدعى عليه")],
         "document_ledger": [claim],
-        "scripted_plaintiff_replies": [c["plaintiff_reply"]] if c.get("plaintiff_reply") else
-                                      ["أتمسّك بطلباتي وبما قدّمته من بيّنات."],
+        # ردود المدعي عبر الجولات: كل سطرٍ = جولةٌ مستقلّة (تفاعلٌ متعدّد الجولات يقوده المستخدم).
+        "scripted_plaintiff_replies": [ln.strip() for ln in str(c.get("plaintiff_reply", "")).splitlines()
+                                       if ln.strip()] or ["أتمسّك بطلباتي وبما قدّمته من بيّنات."],
         "overrides": body.get("overrides") or {},
         "filing_date": filing, "deadlines": {},
     }
@@ -102,6 +103,7 @@ def _cits(items) -> list[dict]:
 
 def events_for(node: str, delta: dict, date: dict | None = None) -> list[dict]:
     evs: list[dict] = []
+    delta = delta or {}   # عقدةٌ بلا تحديث (إعادة دخولٍ محروسة) تُرجِع None في وضع updates
     if node in STAGES:
         label, icon = STAGES[node]
         evs.append({"type": "stage", "node": node, "label": label, "icon": icon, "date": date})
@@ -169,6 +171,36 @@ async def export_ruling(request: Request) -> Response:
         headers={"Content-Disposition": f'attachment; filename="bayyin-{cid}.docx"'})
 
 
+def _extract_text(raw: bytes, ct: str) -> tuple[str, str]:
+    """يستخرج نصّ مستندٍ مرفوع (PDF/نص). لا يُخزَّن — يُعالَج ويُعاد فوراً."""
+    if raw[:5] == b"%PDF-" or "pdf" in (ct or ""):
+        try:
+            import io
+            from pypdf import PdfReader
+            reader = PdfReader(io.BytesIO(raw))
+            text = "\n".join((pg.extract_text() or "") for pg in reader.pages[:40]).strip()
+            warn = ("" if len(text) >= 40 else
+                    "لم يُستخرَج نصٌّ كافٍ — قد يكون PDF ممسوحاً ضوئياً (صورة). "
+                    "الصق النصّ يدوياً أو استخدم نسخةً نصّية.")
+            return text, warn
+        except Exception as e:  # noqa: BLE001
+            return "", f"تعذّرت قراءة PDF: {type(e).__name__}"
+    try:
+        return raw.decode("utf-8", errors="replace").strip(), ""
+    except Exception:  # noqa: BLE001
+        return "", "تعذّر فكّ ترميز الملف."
+
+
+@app.post("/api/upload")
+async def upload(request: Request) -> dict:
+    """يستقبل بايتات المستند خاماً (لا multipart) فيستخرج نصّه ليُدرَج في الوقائع."""
+    raw = await request.body()
+    if len(raw) > 10 * 1024 * 1024:
+        return {"text": "", "chars": 0, "warning": "الملف كبيرٌ جداً (>10MB)."}
+    text, warn = _extract_text(raw, request.headers.get("content-type", ""))
+    return {"text": text, "chars": len(text), "warning": warn}
+
+
 @app.post("/api/run")
 async def run(request: Request) -> StreamingResponse:
     body = await request.json()
@@ -198,6 +230,7 @@ async def run(request: Request) -> StreamingResponse:
                 cfg = {"configurable": {"thread_id": state["case_id"] + "-" + str(time.monotonic())}}
                 for chunk in graph.stream(state, cfg, stream_mode="updates"):
                     for node, delta in chunk.items():
+                        delta = delta or {}
                         clock, d = timeline.advance(clock, node)
                         if delta.get("appeal_window_days"):
                             appeal_days = delta["appeal_window_days"]
