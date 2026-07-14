@@ -65,16 +65,26 @@ def build_ruling_docx(payload: dict) -> bytes:
     para("⚠️ محاكاةٌ تدريبية فقط — ليست حكماً قضائياً حقيقياً ولا استشارةً قانونية.",
          size=9, align=WD_ALIGN_PARAGRAPH.CENTER, color=(0x99, 0x35, 0x56), space_after=10)
 
-    # بيانات الدعوى
-    heading("بيانات الدعوى")
-    info = [("رقم الدعوى", meta.get("case_id", "—")), ("النوع", meta.get("case_type", "تجاري")),
+    # ديباجة الصك (بيانات م.62 من نظام المحاكم التجارية — تمثيلٌ محاكاتي)
+    heading("بيانات الصك")
+    comp = payload.get("composition") or "—"
+    pron = payload.get("pronounced_hijri") or "—"
+    pron_g = payload.get("pronounced_greg") or ""
+    info = [("الدائرة مُصدِرة الحكم", f"{comp} (قضاةٌ افتراضيون — محاكاة تدريبية)"),
+            ("تاريخ النطق بالحكم", pron + (f" — {pron_g}م" if pron_g else "")),
+            ("رقم الدعوى", meta.get("case_id", "—")), ("النوع", meta.get("case_type", "تجاري")),
             ("قيمة المطالبة", f"{meta.get('value', '—')} ر.س"), ("تاريخ القيد", meta.get("filing", "—"))]
+    para("   |   ".join(f"{k}: {v}" for k, v in info), size=11, space_after=4)
+    para(f"أطراف الدعوى: المدعي/ {payload.get('plaintiff', '—')}   ضدّ   "
+         f"المدعى عليه/ {payload.get('defendant', '—')}", size=11, space_after=4)
+    extra = []
     if payload.get("confidence"):
-        info.append(("ثقة المحرّك", payload["confidence"]))
+        extra.append(("ثقة المحرّك", payload["confidence"]))
     if payload.get("route"):
         appl = "قابل للاستئناف" if payload.get("appealable") else "نهائي"
-        info.append(("قابلية الاعتراض", f"{appl} — {payload['route']}"))
-    para("   |   ".join(f"{k}: {v}" for k, v in info), size=11, space_after=10)
+        extra.append(("قابلية الاعتراض", f"{appl} — {payload['route']}"))
+    if extra:
+        para("   |   ".join(f"{k}: {v}" for k, v in extra), size=11, space_after=10)
 
     if payload.get("blocked"):
         para("⛔ حُجِب النطق: حكمٌ مبنيٌّ على إسنادٍ مختلق أو مخالفةٍ جوهرية — لا يُعتدّ به.",

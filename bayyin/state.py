@@ -57,6 +57,8 @@ class Citation(BaseModel):
     source_tool: str     # أي أداة file_search (search_saudi_codes ...)
     source_ref: str      # معرّف/عنوان المقطع المسترجَع
     quote: str = ""      # اقتباس داعم من المصدر
+    status: str = ""     # وسم التحقّق: مؤصَّل / غير مُحمَّل / مختلق (للعرض التدريبي)
+    status_reason: str = ""
 
 
 class Document(BaseModel):
@@ -77,6 +79,7 @@ class Ruling(BaseModel):
     facts: str           # الوقائع
     reasons: str         # الأسباب / التسبيب
     operative: str       # المنطوق
+    composition: str = ""  # تشكيل الدائرة المُصدِرة (قاضٍ فرد / دائرة ثلاثية) — لبيانات الصك
     citations: list[Citation] = Field(default_factory=list)
     appealable: Optional[bool] = None
     appeal_route: str = ""   # "استئناف" / "التماس إعادة النظر" / "نهائي"
@@ -154,6 +157,9 @@ class CaseState(TypedDict, total=False):
     # التحرير وإعادة الإطلاق: نصوصٌ من المستخدم تستبدل نصوص النموذج (key → text)
     overrides: dict
     filing_date: str          # تاريخ قيد الدعوى (مرساة المحرّك الزمني)
+    obligation_due_date: str  # تاريخ استحقاق الالتزام (لحساب التقادم حساباً لا تخميناً)
+    appeal_window_days: int   # مهلة الاعتراض الفعلية (30، و10 للمستعجل/أحكام الاختصاص)
+    mediation_done: bool      # جرت المصالحة/الوساطة قبل القيد (وجوبية لطيفٍ من الدعاوى)
 
     # سجل التدقيق (يتراكم) — كل خطوة: من فعل ماذا وبأي نموذج ومصادر
     audit_log: Annotated[list[dict], operator.add]

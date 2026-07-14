@@ -7,7 +7,7 @@
 """
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 
 from . import settings, sources
 from .llm import get_llm
@@ -29,7 +29,8 @@ class OpResult:
     data: dict
     cites: list[Cite]
     verdict: Verdict
-    evidence: list[str] = field(default_factory=list)  # نصوص المقاطع المُسترجَعة فعلاً في هذه العملية
+    # نصوص المقاطع المُسترجَعة فعلاً في هذه العملية: None = لا استرجاعَ في النداء.
+    evidence: list[str] | None = None
 
 
 _CITE = {
@@ -108,15 +109,25 @@ def _cites(items) -> list[Cite]:
     return out
 
 
-def _call(key: str, user: str, schema: dict, tools: list | None = None) -> tuple[dict, list[str]]:
+def _call(key: str, user: str, schema: dict, tools: list | None = None) -> tuple[dict, list[str] | None]:
     res = get_llm().complete(model=_model_for_op(key), system=_P[key], user=user, tools=tools,
                              schema=schema, role=f"op_{key}", effort=_effort_for_op(key))
-    return (res.get("data") or {}), (res.get("evidence") or [])
+    # نحفظ دلالة الأدلة: None = لا استرجاعَ في النداء؛ [] = استرجاعٌ لم يُعِد شيئاً.
+    return (res.get("data") or {}), res.get("evidence")
 
 
-def _ctx(state, prior: dict) -> str:
+def _merge_ev(state, ev: list[str] | None) -> list[str] | None:
+    """أدلة العملية + أدلة البحث القضائي (المبدأ الصحيح الوارد في ملف الدعوى يُؤصَّل
+    بأدلة البحث ولو لم يُعِد نداءُ العملية استرجاعه). None يبقى None إن غاب الاثنان."""
+    r_ev = (state.get("research") or {}).get("evidence")
+    if ev is None and r_ev is None:
+        return None
+    return (ev or []) + (r_ev or [])
+
+
+def _ctx(state, prior: dict, research: bool = True) -> str:
     from .nodes import _case_file_text  # إعادة استخدام نصّ ملف الدعوى (نسخة القاضي: بلا اتجاه السوابق)
-    parts = [_case_file_text(state, for_judge=True)]
+    parts = [_case_file_text(state, for_judge=True, research=research)]
     for k, v in prior.items():
         parts.append(f"[{k}] {v.get('summary', '')}")
     return "\n".join(parts)
@@ -124,7 +135,8 @@ def _ctx(state, prior: dict) -> str:
 
 # ============================ العمليات ============================
 def op_tahrir(state, prior) -> OpResult:
-    d, ev = _call("tahrir", _ctx(state, prior), S_TAHRIR)
+    # التحرير لا يحتاج ملخّص البحث (تقليل الحمولة) — يقرأ الصحيفة والمذكرات فقط.
+    d, ev = _call("tahrir", _ctx(state, prior, research=False), S_TAHRIR)
     issues = [] if d.get("requests") else ["لم تتحدّد طلبات الدعوى."]
     return OpResult("tahrir", "التحرير", d, [], Verdict(not issues, issues, "عالية"), ev)
 
@@ -135,7 +147,7 @@ def op_takyif(state, prior) -> OpResult:
     cites = _cites([d.get("cite")] if d.get("cite") else [])
     issues = []
     for c in cites:
-        st, why = sources.verify_cite(c, ev)
+        st, why = sources.verify_cite(c, _merge_ev(state, ev))
         if st == sources.CiteStatus.FABRICATED:
             issues.append(f"تكييفٌ يستند لمصدرٍ مختلق: {why}")
     conf = "عالية" if not issues else "منخفضة"
@@ -143,7 +155,8 @@ def op_takyif(state, prior) -> OpResult:
 
 
 def op_mahal(state, prior) -> OpResult:
-    d, ev = _call("mahal", _ctx(state, prior), S_MAHAL)
+    # تحديد محل النزاع يقرأ الصحيفة والمذكرات — لا يحتاج ملخّص البحث.
+    d, ev = _call("mahal", _ctx(state, prior, research=False), S_MAHAL)
     return OpResult("mahal", "تحديد محل النزاع", d, [], Verdict(True, [], "عالية"), ev)
 
 
@@ -155,7 +168,7 @@ def op_ithbat(state, prior) -> OpResult:
         c = _cites([f.get("basis")])[0] if f.get("basis") else None
         if c:
             cites.append(c)
-            st, why = sources.verify_cite(c, ev)
+            st, why = sources.verify_cite(c, _merge_ev(state, ev))
             if st == sources.CiteStatus.FABRICATED:
                 issues.append(f"إثباتٌ بإسنادٍ مختلق: {why}")
     return OpResult("ithbat", "الإثبات", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"), ev)
@@ -167,7 +180,7 @@ def op_tatbiq(state, prior) -> OpResult:
     cites = _cites([d.get("rule")] if d.get("rule") else [])
     issues = []
     for c in cites:
-        st, why = sources.verify_cite(c, ev)
+        st, why = sources.verify_cite(c, _merge_ev(state, ev))
         if st == sources.CiteStatus.FABRICATED:
             issues.append(f"تطبيقُ قاعدةٍ مختلقة: {why}")
     return OpResult("tatbiq", "التطبيق", d, cites, Verdict(not issues, issues, "عالية" if not issues else "منخفضة"), ev)
@@ -182,8 +195,9 @@ def op_tasbib(state, prior) -> OpResult:
     issues: list[str] = []
     # (1) لا يُقضى بما لم يُطلب
     issues += check_non_ultra_petita(requests, d.get("granted", []))
-    # (2) عدم تناقض المنطوق
-    issues += check_mantuq_consistency(d.get("direction", ""), d.get("operative", ""), d.get("granted", []))
+    # (2) عدم تناقض المنطوق (يغطّي الاتجاهات الأربعة والاتجاه المجهول)
+    issues += check_mantuq_consistency(d.get("direction", ""), d.get("operative", ""),
+                                       d.get("granted", []), requests)
     # (3) الردّ على الدفوع الجوهرية
     issues += check_defenses_addressed(defenses, d.get("addressed_defenses", []))
     conf = "عالية" if not issues else "منخفضة"
@@ -206,19 +220,56 @@ def _num(x) -> float:
         return 0.0
 
 
+# مرادفاتٌ ماليةٌ شائعة لنوع الطلب (بعد التطبيع) — يولّد النموذج النوع نصاً حراً في
+# نداءين منفصلين (تحرير ثم تسبيب) فالاختلاف اللفظي واردٌ ولا يصحّ حجبُ حكمٍ صحيحٍ به.
+_MONEY_TYPES = {"مبلغ", "المبلغ", "مطالبه ماليه", "المطالبه الماليه", "ثمن", "الثمن",
+                "قيمه", "القيمه", "مبالغ", "المطالبه"}
+
+
+def _match_req_type(t: str, req: dict[str, float]) -> str | None:
+    """مطابقة نوعٍ رخوة: حرفية ← تقاطع رموز ← مرادفات مالية."""
+    if t in req:
+        return t
+    tt = sources._tokens(t)
+    for k in req:
+        if tt and tt & sources._tokens(k):
+            return k
+    if t in _MONEY_TYPES:
+        for k in req:
+            if k in _MONEY_TYPES:
+                return k
+    return None
+
+
 def check_non_ultra_petita(requests: list[dict], granted: list[dict]) -> list[str]:
-    """لا يُقضى بما لم يُطلب ولا بأكثر منه (سبب من أسباب م.200). يطبّع النوع ويؤمّن القيمة."""
-    issues = []
+    """لا يُقضى بما لم يُطلب ولا بأكثر منه (م.200): مجموعُ الممنوح لكل نوعٍ يُقارَن
+    بالمطلوب (لا كل عنصرٍ منفرداً — يصيد التجزئة)، والمطابقة رخوة (لا حجب بالمرادف)."""
+    issues: list[str] = []
     req: dict[str, float] = {}
     for r in requests:
         t = sources._norm(r.get("type", ""))
         req[t] = max(req.get(t, 0.0), _num(r.get("amount", 0)))
+    total_req = sum(req.values())
+    granted_by_type: dict[str, float] = {}
+    unmatched: list[tuple[str, float]] = []
     for g in granted:
         t, ga, raw = sources._norm(g.get("type", "")), _num(g.get("amount", 0)), g.get("type", "")
-        if t not in req:
-            issues.append(f"⛔ قضاءٌ بما لم يُطلب: «{raw}» غير مطلوب.")
-        elif ga > req[t] + 1e-6:
-            issues.append(f"⛔ قضاءٌ بأكثر مما طُلب في «{raw}» ({ga:g} > {req[t]:g}).")
+        k = _match_req_type(t, req)
+        if k is None:
+            unmatched.append((raw, ga))
+        else:
+            granted_by_type[k] = granted_by_type.get(k, 0.0) + ga
+    for k, tot in granted_by_type.items():
+        if tot > req[k] + 1e-6:
+            issues.append(f"⛔ قضاءٌ بأكثر مما طُلب في «{k}» (مجموع الممنوح {tot:g} > {req[k]:g}).")
+    for raw, ga in unmatched:
+        if ga > total_req + 1e-6:
+            issues.append(f"⛔ قضاءٌ بما لم يُطلب: «{raw}» غير مطلوبٍ ويتجاوز إجمالي المطلوب.")
+        else:
+            issues.append(f"⚠️ نوع محكومٍ به لم يُطابق طلباً بلفظه: «{raw}» — يُتحقَّق أنه ضمن الطلبات.")
+    total_granted = sum(granted_by_type.values()) + sum(ga for _, ga in unmatched)
+    if total_granted > total_req + 1e-6:
+        issues.append(f"⛔ مجموع المحكوم به ({total_granted:g}) يتجاوز مجموع المطلوب ({total_req:g}).")
     return issues
 
 
@@ -226,8 +277,10 @@ _ILZAM = ("إلزام", "ألزم", "يؤدي", "بأداء", "يدفع")
 _RAFD = ("رفض", "عدم قبول", "ردّ الدعوى")
 
 
-def check_mantuq_consistency(direction: str, operative: str, granted: list[dict] | None = None) -> list[str]:
-    """اتّساق المنطوق مع نتيجة التسبيب (م.200: تناقض المنطوق) — بالتطبيع وبمقابلة المحكوم به."""
+def check_mantuq_consistency(direction: str, operative: str, granted: list[dict] | None = None,
+                             requests: list[dict] | None = None) -> list[str]:
+    """اتّساق المنطوق مع نتيجة التسبيب (م.200: تناقض المنطوق) — يغطّي الاتجاهات
+    الأربعة كلّها والاتجاهَ المجهول (فشل parsing)، فلا يُعطَّل الفحص باختيار الاتجاه."""
     op = sources._norm(operative or "")
     has_ilzam = any(sources._norm(k) in op for k in _ILZAM)
     has_rafd = any(sources._norm(k) in op for k in _RAFD)
@@ -243,6 +296,30 @@ def check_mantuq_consistency(direction: str, operative: str, granted: list[dict]
             issues.append("⛔ تناقض: التسبيب لصالح المدعي والمنطوق يرفض.")
         if not g and not has_ilzam:
             issues.append("⚠️ المنطوق لا يعكس صراحةً ما رجّحه التسبيب لصالح المدعي.")
+    elif direction == "للمدعى عليه":
+        if has_ilzam:
+            issues.append("⛔ تناقض: التسبيب لصالح المدعى عليه والمنطوق يُلزمه بالأداء.")
+        if g:
+            issues.append("⛔ تناقض: التسبيب لصالح المدعى عليه مع وجود محكومٍ به للمدعي.")
+    elif direction == "جزئي":
+        if not g:
+            issues.append("⛔ تناقض: اتجاهٌ جزئيٌّ بلا محكومٍ به في المنطوق.")
+        elif has_rafd and not has_ilzam:
+            issues.append("⛔ تناقض: اتجاهٌ جزئيٌّ والمنطوق رفضٌ خالصٌ بلا إلزام.")
+        elif requests:
+            req: dict[str, float] = {}
+            for r in requests:
+                t = sources._norm(r.get("type", ""))
+                req[t] = max(req.get(t, 0.0), _num(r.get("amount", 0)))
+            got: dict[str, float] = {}
+            for x in g:
+                k = _match_req_type(sources._norm(x.get("type", "")), req)
+                if k is not None:
+                    got[k] = got.get(k, 0.0) + _num(x.get("amount", 0))
+            if req and all(got.get(t, 0.0) >= v - 1e-6 for t, v in req.items() if v > 0) and got:
+                issues.append("⚠️ اتجاهٌ «جزئي» اسماً والمحكومُ به يساوي كامل المطلوب فعلاً.")
+    else:
+        issues.append("⚠️ اتجاه التسبيب غير محدّد — تعذّر فحص اتّساق المنطوق مع الأسباب.")
     return issues
 
 
@@ -257,9 +334,19 @@ def adjudicate(state) -> dict:
     """
     يشغّل سلسلة العمليات ويُنتج حكماً مُتحقَّقاً منه مقدّمةً مقدّمة + تقرير تأصيل.
     """
+    from concurrent.futures import ThreadPoolExecutor
     prior: dict = {}
     results: list[OpResult] = []
-    for op in (op_tahrir, op_takyif, op_mahal, op_ithbat, op_tatbiq, op_tasbib):
+    # المرحلة 1 (متوازية): التحرير/التكييف/محل النزاع — كلٌّ يقرأ ملف الدعوى فقط
+    # ولا يعتمد على مخرَج الآخر. الدمج بترتيبٍ ثابت حفاظاً على حتمية السياق اللاحق.
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        futs = [ex.submit(op, state, {}) for op in (op_tahrir, op_takyif, op_mahal)]
+        stage1 = [f.result() for f in futs]
+    for r in stage1:
+        prior[r.key] = r.data
+        results.append(r)
+    # المراحل 2→4 (تسلسلية بحكم الاعتمادية): إثبات ← تطبيق (يُنزِل على الوقائع الثابتة) ← تسبيب.
+    for op in (op_ithbat, op_tatbiq, op_tasbib):
         r = op(state, prior)
         prior[r.key] = r.data
         results.append(r)
@@ -267,8 +354,14 @@ def adjudicate(state) -> dict:
 
     tasbib = prior.get("tasbib", {})
     all_cites = [c for r in results for c in r.cites]
-    # نصوص المقاطع المُسترجَعة فعلاً عبر العمليات — تُحقَّق بها اقتباسات المبادئ/السوابق.
-    all_evidence = [e for r in results for e in r.evidence]
+    # نصوص المقاطع المُسترجَعة فعلاً (عمليات + بحث قضائي) — تُحقَّق بها اقتباسات المبادئ/السوابق.
+    # None يبقى None إن لم يجرِ أي استرجاعٍ إطلاقاً (وضعٌ وهمي/اختبار وحدوي) فلا يُحاسَب عليه.
+    ev_lists = [r.evidence for r in results]
+    research_ev = (state.get("research") or {}).get("evidence")
+    if all(e is None for e in ev_lists) and research_ev is None:
+        all_evidence = None
+    else:
+        all_evidence = [x for e in ev_lists if e for x in e] + (research_ev or [])
     grounding = sources.assess_grounding(all_cites, all_evidence)
 
     flags = list(grounding["issues"]) + list(grounding["uncertainty"])

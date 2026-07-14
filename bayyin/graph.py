@@ -39,6 +39,7 @@ def build_graph(checkpointer=None):
 
     # المرحلة الابتدائية
     g.add_node("router", nodes.router_node)
+    g.add_node("mediation", nodes.mediation_node)
     g.add_node("intake_register", nodes.intake_register_node)
     g.add_node("rejected", nodes.rejected_node)
     g.add_node("referred", nodes.referred_node)
@@ -61,18 +62,21 @@ def build_graph(checkpointer=None):
     g.add_node("reconsideration", nodes.reconsideration_node)
 
     g.add_edge(START, "router")
-    g.add_edge("router", "intake_register")
+    # المصالحة/الوساطة قبل القيد (م.8 محاكم تجارية) — شرطُ قبولٍ لطيفٍ من الدعاوى.
+    g.add_edge("router", "mediation")
+    g.add_edge("mediation", "intake_register")
     g.add_conditional_edges("intake_register", nodes.route_after_intake,
                             {"research": "research", "rejected": "rejected", "referred": "referred"})
     g.add_edge("rejected", END)
     g.add_edge("referred", END)
     g.add_edge("research", "notify_defendant")
     g.add_edge("notify_defendant", "defendant_plea")
-    g.add_edge("defendant_plea", "incidents")
+    # مبدأ المواجهة: يُمكَّن المدعي من الردّ على المذكرة (ودفوعها) قبل الفصل في الدفوع.
+    g.add_edge("defendant_plea", "plaintiff_plea")
+    g.add_edge("plaintiff_plea", "incidents")
     g.add_conditional_edges("incidents", nodes.route_after_incidents,
-                            {"incident_ruling": "incident_ruling", "plaintiff_plea": "plaintiff_plea"})
+                            {"incident_ruling": "incident_ruling", "hearing_manager": "hearing_manager"})
     g.add_edge("incident_ruling", "serve_judgment")
-    g.add_edge("plaintiff_plea", "hearing_manager")
     g.add_conditional_edges("hearing_manager", nodes.route_pleadings,
                             {"expert": "expert", "close_pleadings": "close_pleadings",
                              "defendant_plea": "defendant_plea"})

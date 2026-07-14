@@ -1,7 +1,7 @@
 """
 تشغيل حقيقي بمفتاح المستخدم — المرحلة الأولى كاملة حتى النطق بالحكم.
-يستدعي gpt-5.4-mini/5.4/5.4-pro فعلياً + file_search على مخزوناتك + web_search.
-(لتفعيل الاستئناف الحقيقي أيضاً: اجعل appeal_requested=True — يضيف ٦ نداءات pro.)
+يستدعي عائلة gpt-5.6 فعلياً (luna/terra/sol حسب الطبقة) + file_search + web_search.
+(لتفعيل الاستئناف الحقيقي أيضاً: اجعل appeal_requested=True — يضيف ٦ نداءات sol.)
 """
 from __future__ import annotations
 
@@ -35,7 +35,7 @@ state = {
 
 
 def main() -> None:
-    print("⏳ تشغيل حقيقي (gpt-5.4) — قد يستغرق دقيقة أو دقيقتين…\n")
+    print("⏳ تشغيل حقيقي (عائلة gpt-5.6) — قد يستغرق دقيقة أو دقيقتين…\n")
     app = build_graph()
     final = app.invoke(state, {"configurable": {"thread_id": state["case_id"]}})
 

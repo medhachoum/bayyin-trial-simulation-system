@@ -90,9 +90,14 @@ class OpenAILLM:
                  tools: list[dict] | None = None, schema: dict | None = None,
                  role: str | None = None, effort: str | None = None) -> dict:
         kwargs: dict = {"model": model, "instructions": system, "input": user}
+        used_fs = bool(tools) and any(t.get("type") == "file_search" for t in tools)
         if tools:
             kwargs["tools"] = tools
-        if effort:  # جهد الاستدلال (للنماذج الاستدلالية كـ gpt-5.5)
+        if used_fs:
+            # جوهري: بدون include لا تُعاد نصوص نتائج file_search إطلاقاً، فتموت
+            # سلسلة الأدلة (evidence) كلها ويُعطَّل التحقّق من اقتباسات المبادئ/السوابق.
+            kwargs["include"] = ["file_search_call.results"]
+        if effort:  # جهد الاستدلال (للنماذج الاستدلالية كعائلة gpt-5.6)
             kwargs["reasoning"] = {"effort": effort}
         if schema is not None:
             # مخرَج JSON منظَّم صارم (structured outputs)
@@ -112,8 +117,10 @@ class OpenAILLM:
                 data = json.loads(text)
             except json.JSONDecodeError:
                 data = None
+        # دلالات الأدلة: None = «لا استرجاعَ في هذا النداء أصلاً» (لا يُحاسَب الاقتباس عليه)،
+        # [] = «استُرجِع فلم يعد شيئاً» (اقتباس المبدأ/السابقة حينها لا يُعتدّ به).
         return {"text": text, "data": data, "sources": _extract_sources(resp),
-                "evidence": _extract_evidence(resp)}
+                "evidence": _extract_evidence(resp) if used_fs else None}
 
 
 # ===========================================================================
@@ -373,7 +380,9 @@ class MockLLM:
         builder = _MOCKS.get(role or "", lambda u: {"text": "—", "data": None})
         out = builder(user)
         out.setdefault("sources", [])
-        out.setdefault("evidence", [])
+        # الوهمي لا يسترجع شيئاً → None («لا استرجاع») لا [] («استرجاعٌ خاوٍ») —
+        # حتى تحاكي بوابةُ التأصيل في الوضع الوهمي المسارَ المتساهل الموثَّق.
+        out.setdefault("evidence", None)
         return out
 
 
@@ -381,13 +390,17 @@ class MockLLM:
 # تخزينٌ محتوى-معنوَن (incremental) — يجعل تعديل عقدةٍ وإعادةَ التشغيل يُعيد حساب
 # العُقَد المتأثّرة فقط؛ فما لم تتغيّر مدخلاته (model+system+user+tools+schema) يعود
 # فورياً من القرص بلا نداءٍ ولا تكلفة. يُغلَّف به الحقيقيُّ فقط (لا الوهمي).
+# نصوص القضايا تُكتب صريحةً — فالمجلد خاصٌّ بالمستخدم (لا temp المشترك) ويُكنس دورياً.
 # ===========================================================================
-_CACHE_DIR = Path(os.getenv("BAYYIN_CACHE_DIR") or (Path(tempfile.gettempdir()) / "bayyin_llm_cache"))
+_CACHE_DIR = Path(os.getenv("BAYYIN_CACHE_DIR") or (Path.home() / ".bayyin" / "cache"))
+_CACHE_VERSION = 2      # يُرفَع عند تغيير شكل الاستجابة (مثل إضافة evidence) لإبطال القديم
+_CACHE_TTL_DAYS = float(os.getenv("BAYYIN_CACHE_TTL_DAYS", "14"))
+_CACHE_MAX_MB = float(os.getenv("BAYYIN_CACHE_MAX_MB", "256"))
 
 
 def _cache_key(model, system, user, tools, schema, role, effort) -> str:
-    payload = json.dumps({"m": model, "s": system, "u": user, "t": tools,
-                          "sc": schema, "r": role, "e": effort},
+    payload = json.dumps({"v": _CACHE_VERSION, "m": model, "s": system, "u": user,
+                          "t": tools, "sc": schema, "r": role, "e": effort},
                          sort_keys=True, ensure_ascii=False)
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
 
@@ -399,6 +412,28 @@ class CachingLLM:
         self.inner = inner
         try:
             _CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            if os.name != "nt":
+                os.chmod(_CACHE_DIR, 0o700)   # خصوصية على الأنظمة متعددة المستخدمين
+            self._sweep()
+        except Exception:
+            pass
+
+    @staticmethod
+    def _sweep() -> None:
+        """كنسٌ عند البدء: حذف ما تجاوز العمر، ثم الأقدم حتى النزول تحت سقف الحجم."""
+        import time as _t
+        try:
+            files = sorted(_CACHE_DIR.glob("*.json"), key=lambda p: p.stat().st_mtime)
+            cutoff = _t.time() - _CACHE_TTL_DAYS * 86400
+            for p in list(files):
+                if p.stat().st_mtime < cutoff:
+                    p.unlink(missing_ok=True)
+                    files.remove(p)
+            total = sum(p.stat().st_size for p in files)
+            while files and total > _CACHE_MAX_MB * 1024 * 1024:
+                p = files.pop(0)
+                total -= p.stat().st_size
+                p.unlink(missing_ok=True)
         except Exception:
             pass
 
@@ -413,7 +448,11 @@ class CachingLLM:
         res = self.inner.complete(model=model, system=system, user=user,
                                   tools=tools, schema=schema, role=role, effort=effort)
         try:
-            f.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+            # كتابةٌ ذرّية: ملفٌّ مؤقّت ثم استبدال — لا JSON مبتوراً عند انهيارٍ/تزامن.
+            import uuid
+            tmp = f.with_name(f.name + ".tmp-" + uuid.uuid4().hex)
+            tmp.write_text(json.dumps(res, ensure_ascii=False), encoding="utf-8")
+            os.replace(tmp, f)
         except Exception:
             pass
         return res

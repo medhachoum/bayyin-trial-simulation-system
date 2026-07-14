@@ -8,6 +8,7 @@ from __future__ import annotations
 from functools import lru_cache
 
 from . import exploits, panel, procedure, prompts, rules, settings
+from . import sources as sources_mod
 from .audit import event
 from .llm import get_llm
 from .state import CaseState, Citation, Document, DocType, Ruling
@@ -53,7 +54,7 @@ _ORDINALS = ["", "الأولى", "الثانية", "الثالثة", "الراب
 
 # ============================ المرحلة الابتدائية =============================
 def router_node(state: CaseState) -> dict:
-    """الموجِّه السريع: يصنّف النوع والتعقيد (gpt-5.4-mini)."""
+    """الموجِّه السريع: يصنّف النوع والتعقيد (GPT_ROUTER — الطبقة الأسرع)."""
     res = _llm().complete(
         model=settings.GPT_ROUTER, system=prompts.ROUTER,
         user=f"موضوع الدعوى: {state.get('claim_subject','')}\nقيمتها: {state.get('claim_value','')}",
@@ -80,7 +81,7 @@ def intake_register_node(state: CaseState) -> dict:
         referred, referral_reason = (not in_scope), (reason if not in_scope else "")
     accepted = formal_ok and not referred
     note = ""
-    if accepted:
+    if accepted and settings.REGISTRAR_RAG_NOTE:  # ملاحظةٌ استئناسية — نداءٌ قابلٌ للتعطيل
         res = _llm().complete(
             model=settings.GPT_STANDARD, system=prompts.REGISTRAR,
             user=f"دقّق صحيفة الدعوى التالية:\n{_claim_text(state)}",
@@ -98,9 +99,28 @@ def intake_register_node(state: CaseState) -> dict:
     }
 
 
+def mediation_node(state: CaseState) -> dict:
+    """المصالحة/الوساطة قبل القيد (م.8 محاكم تجارية): وجوبيةٌ لطيفٍ من الدعاوى؛ تُحاكى
+    محاولةُ الصلح ويُوثَّق انتهاؤها بغير اتفاقٍ (شرطُ قبول القيد) — لا تُتخطّى الخطوة."""
+    required, why = rules.mediation_required(state)
+    if not required:
+        return {"mediation_done": True,
+                "audit_log": [event("مركز المصالحة", "لا تجب المصالحة قبل القيد لهذه الدعوى",
+                                    detail="خارج نطاق الوجوب — تُقيَّد مباشرة.")]}
+    doc = Document(doc_type=DocType.CLAIM_SHEET, author_role="مركز المصالحة",
+                   title="وثيقة انتهاء المصالحة بغير اتفاق",
+                   body=(f"{why}\nعُرض النزاع على المصالحة والوساطة فلم يتوصّل الطرفان إلى صلحٍ "
+                         f"خلال المدة النظامية (لا تتجاوز {settings.MEDIATION_WINDOW_DAYS} يوماً)، "
+                         "فحُرِّرت هذه الوثيقة ليُقبل قيدُ الدعوى."),
+                   event="مصالحة", key="mediation")
+    return {"mediation_done": True, "document_ledger": [doc],
+            "audit_log": [event("مركز المصالحة", "عرض النزاع على المصالحة قبل القيد (وجوبي)",
+                                detail=why + " انتهت بغير اتفاق — تُقيَّد الدعوى.")]}
+
+
 def route_after_intake(state: CaseState) -> str:
     if not state.get("intake_ok"):
-        return "rejected"                    # نقصٌ شكلي → ردّ الدعوى (تنتهي الخصومة)
+        return "rejected"                    # نقصٌ شكلي → استيفاءٌ خلال المهلة وإلا كأن لم يكن
     if state.get("intake_referred"):
         return "referred"                    # عدم اختصاصٍ نوعي → الحكم بعدم الاختصاص والإحالة
     return "research"
@@ -135,15 +155,25 @@ def research_node(state: CaseState) -> dict:
 
 
 def rejected_node(state: CaseState) -> dict:
-    return {"audit_log": [event("المحكمة", "عدم قبول الدعوى شكلاً",
-                               detail="؛ ".join(state.get("intake_issues", [])))]}
+    """نقص الصحيفة قرارٌ إداري من إدارة القيد لا حكمٌ قضائي (م.20 محاكم تجارية):
+    مهلةُ استيفاءٍ 15 يوماً، فإن لم تُستوفَ عُدّ الطلب كأن لم يكن، مع حقّ التظلّم."""
+    days = settings.CLAIM_CURE_WINDOW_DAYS
+    return {"deadlines": {**state.get("deadlines", {}),
+                          "استيفاء نواقص الصحيفة": f"{days} يوماً من الإبلاغ"},
+            "audit_log": [event("إدارة القيد (قرارٌ إداري)",
+                                f"طلبُ استيفاء النواقص خلال {days} يوماً",
+                                detail=("؛ ".join(state.get("intake_issues", [])) +
+                                        f" — فإن استُوفيت عُدّت الدعوى مقيّدةً من تاريخ الطلب، "
+                                        f"وإلا عُدّ الطلب كأن لم يكن؛ ولطالب القيد التظلّم "
+                                        f"لرئيس المحكمة خلال {days} يوماً وقراره نهائي."))]}
 
 
 def notify_defendant_node(state: CaseState) -> dict:
     return {
-        "deadlines": {**state.get("deadlines", {}), "مذكرة جوابية أولى": "قبل الجلسة الأولى"},
-        "audit_log": [event("النظام", "إشعار المدعى عليه بالدعوى",
-                            detail="ضبط ميعاد المذكرة الجوابية الأولى")],
+        "deadlines": {**state.get("deadlines", {}),
+                      "مذكرة الدفاع": "قبل الجلسة المحدّدة بيومٍ على الأقل (والجلسة خلال ٢٠ يوماً من القيد)"},
+        "audit_log": [event("النظام", "تبليغ المدعى عليه بالدعوى (عبر ناجز، في اليوم التالي للقيد)",
+                            detail="تحديد الجلسة الأولى خلال ٢٠ يوماً وضبط ميعاد مذكرة الدفاع")],
     }
 
 
@@ -167,16 +197,18 @@ def defendant_plea_node(state: CaseState) -> dict:
         schema=DEFENSE_SCHEMA, role="defendant",
     )
     data = res.get("data") or {"title": "مذكرة جوابية", "body": res.get("text", ""), "citations": []}
+    cits = _verify_memo_citations(_citations(data), res.get("evidence"))
     doc = Document(
         doc_type=DocType.DEFENSE_MEMO, author_role="مدعى عليه",
         title=data.get("title") or f"المذكرة الجوابية {ordinal}", body=data.get("body", ""),
-        citations=_citations(data), hearing_no=state.get("hearing_no", 0),
+        citations=cits, hearing_no=state.get("hearing_no", 0),
         event=f"جوابية {round_no}", key=key,
     )
     upd: dict = {
         "document_ledger": [doc], "pleading_rounds": round_no,
         "audit_log": [event("وكيل المدعى عليه", f"تقديم المذكرة الجوابية {ordinal}",
-                            model=_model_for(state), sources=_srcs(doc.citations))],
+                            model=_model_for(state), detail=_cit_counts(cits),
+                            sources=_srcs(doc.citations))],
     }
     if round_no == 1 and exploits.injection_for(state) == "forgery":
         doc.flag = "forged"
@@ -186,13 +218,16 @@ def defendant_plea_node(state: CaseState) -> dict:
 
 
 def incidents_node(state: CaseState) -> dict:
-    """الفصل في الدفوع الشكلية المثارة في المذكرة (إجراءٌ متولّد من حقوق الخصم)."""
+    """الفصل في الدفوع الشكلية المثارة — بعد تمكين المدعي من الردّ (مبدأ المواجهة):
+    لا يُقضى في دفعٍ منهٍ للخصومة من مذكرة المدعى عليه وحدها. الدفوع مستقلّة → متوازية."""
     if state.get("incidents_done"):
         return {}
     invoked = procedure.detect_invoked(state)
     if not invoked:
         return {"incidents_done": True}
-    results = [procedure.adjudicate_incident(state, k) for k in invoked]
+    from concurrent.futures import ThreadPoolExecutor
+    with ThreadPoolExecutor(max_workers=min(4, len(invoked))) as ex:
+        results = list(ex.map(lambda k: procedure.adjudicate_incident(state, k), invoked))
     audit = [event("القاضي", f"الفصل في {r['label']}", model=settings.GPT_PRO,
                    detail=("قُبِل: " if r["upheld"] else "رُفِض: ") + r["operative"][:70],
                    sources=[r["cite"]["system"]] if r.get("cite", {}).get("system") else [])
@@ -205,21 +240,31 @@ def incidents_node(state: CaseState) -> dict:
 
 
 def route_after_incidents(state: CaseState) -> str:
-    return "incident_ruling" if state.get("incident_disposition") else "plaintiff_plea"
+    # بعد نقل الفصل في الدفوع إلى ما بعد ردّ المدعي (المواجهة)، الرفض يمضي للجلسة.
+    return "incident_ruling" if state.get("incident_disposition") else "hearing_manager"
 
 
 def incident_ruling_node(state: CaseState) -> dict:
-    """حكمٌ بقبول دفعٍ قاطعٍ يُنهي الدعوى (عدم اختصاص / سقوط بالتقادم)."""
+    """حكمٌ بقبول دفعٍ قاطع. عدمُ الاختصاص لا يُنهي الحقّ بل يُحيل: تُنقل الدعوى بحالتها
+    إلى المحكمة المختصّة (م.76 مرافعات) — لا مجرّد إنهاء الخصومة."""
     disp = state["incident_disposition"]
     c = disp["cite"]
+    operative = disp["operative"]
+    if disp.get("key") == "jurisdiction" and "إحالة" not in operative and "تُحال" not in operative:
+        operative = (operative.rstrip("۔. ") +
+                     "؛ وأمرت بإحالة الدعوى بحالتها إلى المحكمة المختصّة (م.76 مرافعات).")
     ruling = Ruling(facts="فصلٌ في دفعٍ شكليٍّ قاطعٍ أُثير في المرافعة.",
-                    reasons=disp["reasoning"], operative=disp["operative"],
+                    reasons=disp["reasoning"], operative=operative,
+                    composition=rules.first_instance_composition(state),
                     citations=[Citation(claim=c.get("claim", ""), source_tool=c.get("system", ""),
                                         source_ref=c.get("article", ""), quote=c.get("quote", ""))],
                     confidence="عالية", direction="للمدعى عليه")
     ruling = rules.determine_appealability({**state, "judgment": ruling})  # type: ignore
+    label = ("قبول الدفع بعدم الاختصاص — إحالةٌ للمحكمة المختصّة"
+             if disp.get("key") == "jurisdiction" else "حكمٌ بقبول دفعٍ قاطع (إنهاء الدعوى)")
     return {"judgment": ruling,
-            "audit_log": [event("المحكمة", "حكمٌ بقبول دفعٍ قاطع (إنهاء الدعوى)",
+            "appeal_window_days": rules.appeal_window_days(state),
+            "audit_log": [event("المحكمة", label,
                                 detail=f"{disp['label']} — {'قابل للاستئناف' if ruling.appealable else 'نهائي'}")]}
 
 
@@ -288,14 +333,16 @@ def expert_node(state: CaseState) -> dict:
         schema=DEFENSE_SCHEMA, role="expert",
     )
     data = res.get("data") or {"title": "تقرير الخبير", "body": res.get("text", ""), "citations": []}
+    cits = _verify_memo_citations(_citations(data), res.get("evidence"))
     doc = Document(
         doc_type=DocType.EXPERT_REPORT, author_role=f"خبير {specialty}",
         title=data.get("title", "تقرير الخبير"), body=data.get("body", ""),
-        citations=_citations(data), hearing_no=state.get("hearing_no", 0), event="تقرير خبير", key="expert",
+        citations=cits, hearing_no=state.get("hearing_no", 0), event="تقرير خبير", key="expert",
     )
     return {
         "document_ledger": [doc], "expert_done": True, "expert_specialty": specialty,
         "audit_log": [event(f"خبير {specialty}", "تقديم تقرير الخبرة", model=settings.GPT_STANDARD,
+                            detail=_cit_counts(cits),
                             sources=_srcs(doc.citations))],
     }
 
@@ -313,15 +360,18 @@ def judgment_node(state: CaseState) -> dict:
     """النطق بالحكم عبر محرّك الاستدلال القضائي (العمليات السبع) ← قابلية الاعتراض."""
     from . import operators
     adj = operators.adjudicate(state)
+    composition = rules.first_instance_composition(state)
     ruling = Ruling(
         facts=adj["facts"], reasons=adj["reasons"], operative=adj["operative"],
+        composition=composition,
         citations=[Citation(claim=c.claim, source_tool=c.system, source_ref=c.article, quote=c.quote)
                    for c in adj["cites"]],
         confidence=adj["confidence"], direction=adj.get("direction", ""),
         blocked=adj.get("blocked", False), flags=adj["flags"],
     )
     g = adj["grounding"]
-    audit = [event("القاضي", "النطق بالحكم عبر محرّك الاستدلال", model=settings.GPT_PRO,
+    audit = [event(f"القاضي ({composition})", "النطق بالحكم عبر محرّك الاستدلال",
+                   model=settings.GPT_JUDGE,
                    detail="، ".join(f"{c['label']}{'✓' if c['ok'] else '⚠'}" for c in adj["chain"]),
                    sources=_srcs(ruling.citations))]
     audit.append(event("بوابة التأصيل",
@@ -346,11 +396,14 @@ def judgment_node(state: CaseState) -> dict:
 
 
 def serve_judgment_node(state: CaseState) -> dict:
+    """تسليم الحكم وبدء مهلة الاعتراض — 30 يوماً، و10 للمستعجل/أحكام الاختصاص (م.187)."""
+    days = state.get("appeal_window_days") or rules.appeal_window_days(state)
     return {
+        "appeal_window_days": days,
         "deadlines": {**state.get("deadlines", {}),
-                      "مهلة الاعتراض": f"{settings.APPEAL_WINDOW_DAYS} يوماً من تاريخ التسليم"},
+                      "مهلة الاعتراض": f"{days} يوماً من تاريخ التسليم"},
         "audit_log": [event("النظام", "تسليم الحكم وبدء مهلة الاعتراض",
-                            detail=f"{settings.APPEAL_WINDOW_DAYS} يوماً")],
+                            detail=f"{days} يوماً")],
     }
 
 
@@ -390,14 +443,16 @@ def appellee_response_node(state: CaseState) -> dict:
         schema=DEFENSE_SCHEMA, role="appellee",
     )
     data = res.get("data") or {"title": "مذكرة جوابية على الاستئناف", "body": res.get("text", ""), "citations": []}
+    cits = _verify_memo_citations(_citations(data), res.get("evidence"))
     doc = Document(doc_type=DocType.APPEAL_RESPONSE, author_role="مستأنف ضده",
                    title=data.get("title", "مذكرة جوابية على الاستئناف"),
-                   body=data.get("body", ""), citations=_citations(data), event="جواب استئناف",
+                   body=data.get("body", ""), citations=cits, event="جواب استئناف",
                    key="appellee_response")
     return {
         "document_ledger": [doc],
         "audit_log": [event("وكيل المستأنف ضده", "الرد على لائحة الاعتراض",
-                            model=settings.GPT_STANDARD, sources=_srcs(doc.citations))],
+                            model=settings.GPT_STANDARD, detail=_cit_counts(cits),
+                            sources=_srcs(doc.citations))],
     }
 
 
@@ -449,6 +504,34 @@ def _citations(data: dict) -> list[Citation]:
     return out
 
 
+def _verify_memo_citations(cits: list[Citation], evidence: list[str] | None) -> list[Citation]:
+    """وسمُ إسنادات مذكرات الخصوم (لا حجب — وسمٌ يراه المحامي المتدرّب): المنتَج يدرّب
+    على التأصيل، فلا يُعرض إسنادٌ بمظهر مصدرٍ رسميٍّ دون بيان حاله. المطابقة على
+    المُسترجَع فعلاً متى توفّر؛ وعند غيابه (وهمي) يُكتفى بصحة شكل الإسناد."""
+    from . import citations as gate
+    joined = " ".join(evidence) if evidence else ""
+    for c in cits:
+        if not gate._is_valid_tool(c.source_tool):
+            c.status, c.status_reason = "مختلق", f"أداة مصدرٍ غير معروفة: «{c.source_tool}»"
+        elif not (c.quote.strip() or c.source_ref.strip()):
+            c.status, c.status_reason = "مختلق", "إسنادٌ بلا مرجعٍ ولا اقتباس"
+        elif evidence is None:
+            c.status = "مؤصَّل"     # لا استرجاعَ في النداء (وهمي/اختبار) — شكل الإسناد سليم
+        elif joined.strip() and c.quote.strip() and sources_mod._loose_overlap(c.quote, joined) \
+                and not sources_mod._numeric_mismatch(c.quote, joined):
+            c.status = "مؤصَّل"
+        else:
+            c.status, c.status_reason = "غير مُحمَّل", "الاقتباس لا يقابل نصاً مُسترجَعاً في النداء نفسه"
+    return cits
+
+
+def _cit_counts(cits: list[Citation]) -> str:
+    ok = sum(1 for c in cits if c.status == "مؤصَّل")
+    un = sum(1 for c in cits if c.status == "غير مُحمَّل")
+    fab = sum(1 for c in cits if c.status == "مختلق")
+    return f"إسنادات المذكرة — مؤصَّل:{ok} · غير مُحمَّل:{un} · مختلق:{fab}"
+
+
 def _srcs(citations: list[Citation]) -> list[str]:
     """مصادر فريدة مرتبة لسجل التدقيق (بلا تكرار)."""
     return sorted({c.source_tool for c in citations if c.source_tool})
@@ -467,11 +550,12 @@ def _claim_text(state: CaseState) -> str:
     return base + (f"\nصحيفة الدعوى:\n{sheet.body}" if sheet else "")
 
 
-def _case_file_text(state: CaseState, for_judge: bool = False) -> str:
+def _case_file_text(state: CaseState, for_judge: bool = False, research: bool = True) -> str:
     parts = [_claim_text(state)]
     r = state.get("research") or {}
     # للقاضي: نسخةٌ تحجب اتجاه السوابق ونتائجها (تفادي الإرساء)؛ للخصم/العرض: النسخة الكاملة.
-    summ = r.get("summary_judge") if for_judge else r.get("summary")
+    # research=False: عملياتٌ لا تحتاج ملخّص البحث أصلاً (تحرير/محل النزاع) — حمولةٌ أخفّ.
+    summ = (r.get("summary_judge") if for_judge else r.get("summary")) if research else ""
     if summ:
         parts.append("\n" + summ)
     parts.append("\n--- المذكرات المتبادلة ---")

@@ -153,13 +153,14 @@ def test_full_graph_populates_and_injects_research():
     assert final.get("judgment") is not None
 
 
-def test_default_models_are_gpt55():
+def test_default_models_are_gpt56_family():
     from bayyin import config
     d = config.defaults()
-    assert d["models"]["standard"] == "gpt-5.5"
-    assert d["models"]["pro"] == "gpt-5.5"
-    assert d["models"]["judge"] == "gpt-5.5"
-    assert d["efforts"]["judge"] == "high"        # القاضي: جهدٌ عالٍ افتراضاً
+    assert d["models"]["router"] == "gpt-5.6-luna"     # الأسرع للتصنيف
+    assert d["models"]["standard"] == "gpt-5.6-terra"  # المتوازن للوكلاء
+    assert d["models"]["pro"] == "gpt-5.6-sol"
+    assert d["models"]["judge"] == "gpt-5.6-sol"       # الرائد للاستدلال القضائي
+    assert d["efforts"]["judge"] == "high"             # القاضي: جهدٌ عالٍ افتراضاً
     assert "effort_options" in d
 
 
@@ -229,6 +230,50 @@ def test_noncommercial_referred_not_rejected():
     assert final.get("judgment") is None     # لا حكم موضوعي — أُحيلت لا رُدّت
 
 
+# ---------- النزاهة العددية (تحريف المهل/الحدود/المبالغ في الاقتباسات) ----------
+def test_numeric_forgery_in_deadline_is_caught():
+    """الثغرة المثبَتة: «ستون يوماً» بدل «ثلاثون» كانت تمرّ كمؤصَّل — يجب أن تُصاد الآن."""
+    real = Cite(system="نظام المرافعات الشرعية", article="187", claim="مهلة الاستئناف",
+                quote="مدة الاعتراض بالاستئناف ثلاثون يوماً تبدأ من اليوم التالي لتسلّم صورة صك الحكم")
+    forged = Cite(system="نظام المرافعات الشرعية", article="187", claim="مهلة الاستئناف",
+                  quote="مدة الاعتراض بالاستئناف ستون يوماً تبدأ من اليوم التالي لتسلّم صورة صك الحكم")
+    assert sources.verify_cite(real)[0] == CiteStatus.VERIFIED
+    assert sources.verify_cite(forged)[0] == CiteStatus.UNLOADED
+
+
+def test_numeric_amount_words_vs_digits_equivalent():
+    """«خمسين ألف» في النص المرجعي تُعادل 50000 رقماً في الاقتباس — لا إنذار كاذب."""
+    ok = Cite(system="قرارات المجلس الأعلى للقضاء", article="41/19/2", claim="حدّ القطعية",
+              quote="الدعاوى التي لا تزيد قيمة المطالبة الأصلية فيها عن 50,000 ريال تُعدّ يسيرة")
+    forged = Cite(system="قرارات المجلس الأعلى للقضاء", article="41/19/2", claim="حدّ القطعية",
+                  quote="الدعاوى التي لا تزيد قيمة المطالبة الأصلية فيها عن خمسمائة ألف ريال تُعدّ يسيرة")
+    assert sources.verify_cite(ok)[0] == CiteStatus.VERIFIED
+    assert sources.verify_cite(forged)[0] == CiteStatus.UNLOADED
+
+
+def test_numeric_article_number_mention_not_flagged():
+    """ذكر رقم المادة نفسها في الاقتباس ليس تحريفاً (الرقم في مرجع المادة)."""
+    c = Cite(system="نظام المرافعات الشرعية", article="200", claim="أسباب الالتماس",
+             quote="نصّت المادة 200 على سبعة أسبابٍ حصريةٍ لالتماس إعادة النظر")
+    assert sources.verify_cite(c)[0] == CiteStatus.VERIFIED
+
+
+def test_numeric_check_on_retrieved_principles_evidence():
+    """مبدأ مُسترجَع: عددٌ في الاقتباس غائبٌ عن المقاطع المُسترجَعة → لا يُعتدّ به."""
+    c = Cite(system="المبادئ القضائية التجارية", article="مبدأ-7", claim="مهلة",
+             quote="للمشتري حبس الثمن خلال خمسة عشر يوماً من اكتشاف العيب")
+    ev_match = ["قررت الدائرة أن للمشتري حبس الثمن خلال خمسة عشر يوماً من اكتشاف العيب"]
+    ev_forged = ["قررت الدائرة أن للمشتري حبس الثمن خلال ثلاثين يوماً من اكتشاف العيب"]
+    assert sources.verify_cite(c, ev_match)[0] == CiteStatus.VERIFIED
+    assert sources.verify_cite(c, ev_forged)[0] == CiteStatus.UNLOADED
+
+
+def test_num_values_extraction():
+    v = sources._num_values("خمسة وعشرون ألف ريال والمادة ١٨٧ خلال 50,000")
+    assert {25, 25000, 187, 50000} <= v
+    assert sources._num_values("العقد شريعة المتعاقدين") == set()
+
+
 # ---------- ② الاستئناف عبر بوابة التأصيل ----------
 def test_appellate_ruling_is_grounded_and_final():
     from bayyin import panel
@@ -258,6 +303,149 @@ def test_export_docx_builds_valid_file():
         "chain": [{"label": "التحرير", "ok": True, "issues": []}], "flags": [],
         "meta": {"case_id": "TC-1", "case_type": "تجاري", "value": 250000}})
     assert isinstance(data, bytes) and data[:2] == b"PK" and len(data) > 1500   # ملفّ DOCX (zip)
+
+
+# ---------- سلسلة الأدلة: include + استخراج نصوص النتائج (عطلٌ حاجزٌ سابق) ----------
+def test_openai_llm_requests_file_search_results():
+    """بدون include=["file_search_call.results"] تعود evidence فارغةً دائماً في الوضع
+    الحقيقي فتموت بوابة مطابقة الاقتباس كلها — هذا الاختبار يمنع انحدارها."""
+    from types import SimpleNamespace as NS
+    from bayyin import llm
+    captured = {}
+
+    class _Client:
+        class responses:
+            @staticmethod
+            def create(**kwargs):
+                captured.update(kwargs)
+                return NS(output=[NS(type="file_search_call",
+                                     results=[NS(text="نصٌّ مُسترجَع", filename="p.md", file_id="f1")])],
+                          output_text="")
+
+    o = llm.OpenAILLM.__new__(llm.OpenAILLM)
+    o.client = _Client()
+    o._transient = (Exception,)
+    res = o.complete(model="m", system="s", user="u",
+                     tools=[{"type": "file_search", "vector_store_ids": ["vs_x"]}])
+    assert captured.get("include") == ["file_search_call.results"]
+    assert res["evidence"] == ["نصٌّ مُسترجَع"]           # النصوص تُستخرج فعلاً
+    assert res["sources"] == ["p.md"]
+    # نداءٌ بلا file_search → لا include و evidence=None (لا يُحاسَب الاقتباس عليه)
+    captured.clear()
+    res2 = o.complete(model="m", system="s", user="u")
+    assert "include" not in captured and res2["evidence"] is None
+
+
+def test_evidence_semantics_none_vs_empty():
+    """None = لا استرجاع (تساهل)؛ [] = استرجاعٌ خاوٍ (اقتباس المبدأ لا يُعتدّ به)."""
+    c = Cite(system="المبادئ القضائية التجارية", article="م-1", quote="نصٌّ ما", claim="x")
+    assert sources.verify_cite(c, None)[0] == CiteStatus.VERIFIED      # وهمي/اختبار
+    assert sources.verify_cite(c, [])[0] == CiteStatus.UNLOADED        # استرجاعٌ لم يُعِد شيئاً
+
+
+# ---------- الإجراء السعودي: المصالحة، الاستيفاء، الإحالة، المواجهة، التشكيل ----------
+def test_mediation_required_rule():
+    assert rules.mediation_required({"claim_value": 250000.0})[0] is True       # ≤ مليون
+    assert rules.mediation_required({"claim_value": 5_000_000.0, "document_ledger": []})[0] is False
+    s = {"claim_value": 5_000_000.0,
+         "document_ledger": [Document(doc_type=DocType.CLAIM_SHEET, author_role="مدعي",
+                                      title="ص", body="اتفق الطرفان على التسوية الودية قبل القضاء.")]}
+    assert rules.mediation_required(s)[0] is True                                # اتفاق تسوية
+
+
+def test_first_instance_composition_by_value():
+    assert rules.first_instance_composition({"claim_value": 250000.0}) == "قاضٍ فرد"
+    assert rules.first_instance_composition({"claim_value": 5_000_000.0}) == "دائرة ابتدائية ثلاثية"
+
+
+def test_full_graph_mediation_and_confrontation_order():
+    """المصالحة قبل القيد، والفصل في الدفوع بعد ردّ المدعي (مبدأ المواجهة)."""
+    from bayyin.graph import build_graph
+    final = build_graph().invoke(_graph_state(), {"configurable": {"thread_id": "t-mediation"}})
+    assert final.get("mediation_done") is True
+    assert any(d.title == "وثيقة انتهاء المصالحة بغير اتفاق" for d in final["document_ledger"])
+    assert final.get("judgment") is not None
+    assert final["judgment"].composition == "قاضٍ فرد"        # 250 ألفاً ≤ مليون
+
+
+def test_jurisdiction_dismissal_orders_referral():
+    """قبول الدفع بعدم الاختصاص → إحالةٌ للمحكمة المختصّة لا مجرّد إنهاء (م.76 مرافعات)."""
+    from bayyin import llm, nodes
+    orig = llm._MOCKS["incident_jurisdiction"]
+    llm._MOCKS["incident_jurisdiction"] = lambda u: {"text": "", "data": {
+        "upheld": True, "operative": "قبول الدفع بعدم الاختصاص.",
+        "reasoning": "النزاع ليس تجارياً.",
+        "cite": {"system": "نظام المحاكم التجارية", "article": "16",
+                 "quote": "تختص المحكمة التجارية بالمنازعات التي تنشأ بين التجار", "claim": "حدود الاختصاص"}}}
+    try:
+        state = _graph_state()
+        state["incident_disposition"] = {"key": "jurisdiction", "label": "الدفع بعدم الاختصاص",
+                                         "upheld": True, "dispositive": True,
+                                         "operative": "قبول الدفع بعدم الاختصاص.",
+                                         "reasoning": "النزاع ليس تجارياً.",
+                                         "cite": {"system": "نظام المحاكم التجارية", "article": "16",
+                                                  "quote": "تختص المحكمة التجارية", "claim": "c"}}
+        upd = nodes.incident_ruling_node(state)
+        assert "إحالة" in upd["judgment"].operative or "تُحال" in upd["judgment"].operative
+        assert upd["appeal_window_days"] == settings.APPEAL_WINDOW_DAYS_URGENT   # 10 أيام
+    finally:
+        llm._MOCKS["incident_jurisdiction"] = orig
+
+
+def test_annulment_flips_by_trial_direction():
+    """«الإلغاء» يتحدّد باتجاه الحكم المُلغى: إلغاءُ حكمِ رفضٍ = الحكم للمدعي، لا رفضٌ مجدّد."""
+    from bayyin import panel
+    from bayyin.state import Ruling
+    r_dismiss = Ruling(facts="و", reasons="ر", operative="رفض الدعوى", direction="رفض الدعوى")
+    assert "بإجابة المدعي" in panel._annul_operative(r_dismiss)
+    r_grant = Ruling(facts="و", reasons="ر", operative="إلزام", direction="للمدعي")
+    assert "برفض الدعوى" in panel._annul_operative(r_grant)
+    r_formal = Ruling(facts="فصلٌ في دفعٍ شكليٍّ قاطع", reasons="ر", operative="عدم سماع", direction="للمدعى عليه")
+    assert "إعادة الدعوى" in panel._annul_operative(r_formal)   # صون درجتي التقاضي
+
+
+# ---------- المُتحقِّقات المشدَّدة ----------
+def test_mantuq_covers_all_directions():
+    from bayyin import operators
+    assert operators.check_mantuq_consistency("للمدعى عليه", "حكمت بإلزام المدعى عليه بأداء المبلغ",
+                                              [{"type": "مبلغ", "amount": 250000}])
+    assert operators.check_mantuq_consistency("جزئي", "حكمت برفض الدعوى", [])
+    assert operators.check_mantuq_consistency("", "حكمت بإلزام المدعى عليه")     # اتجاه مجهول → تحذير
+    assert operators.check_mantuq_consistency(
+        "جزئي", "حكمت بإلزام المدعى عليه بجزءٍ من المبلغ",
+        [{"type": "مبلغ", "amount": 100000}], [{"type": "مبلغ", "amount": 250000}]) == []
+
+
+def test_ultra_petita_sum_splitting_caught():
+    """التجزئة: عنصران 200+200 ألف مقابل طلبٍ 250 ألفاً — المجموع يتجاوز فيُحبس."""
+    from bayyin import operators
+    out = operators.check_non_ultra_petita([{"type": "مبلغ", "amount": 250000}],
+                                           [{"type": "مبلغ", "amount": 200000},
+                                            {"type": "مبلغ", "amount": 200000}])
+    assert any("⛔" in i for i in out)
+
+
+def test_ultra_petita_synonym_not_blocked():
+    """المرادف المالي («المطالبة المالية» عن «مبلغ») لا يرفع ⛔ حجبٍ كاذب."""
+    from bayyin import operators
+    out = operators.check_non_ultra_petita([{"type": "مبلغ", "amount": 250000}],
+                                           [{"type": "المطالبة المالية", "amount": 250000}])
+    assert not any("⛔" in i for i in out)
+
+
+def test_memo_citations_are_labeled():
+    """إسنادات مذكرات الخصوم تُوسَم (مؤصَّل/غير مُحمَّل/مختلق) — لا تُعرض بلا فحص."""
+    from bayyin import nodes
+    from bayyin.state import Citation
+    cits = [Citation(claim="c1", source_tool="أداة مجهولة", source_ref="x", quote="نص"),
+            Citation(claim="c2", source_tool="search_saudi_codes", source_ref="", quote=""),
+            Citation(claim="c3", source_tool="search_saudi_codes", source_ref="م", quote="اقتباسٌ مطابقٌ تماماً")]
+    out = nodes._verify_memo_citations(cits, ["وثيقةٌ تحوي: اقتباسٌ مطابقٌ تماماً"])
+    assert out[0].status == "مختلق" and out[1].status == "مختلق" and out[2].status == "مؤصَّل"
+    # عند غياب الاسترجاع (وهمي): يُكتفى بشكل الإسناد
+    out2 = nodes._verify_memo_citations(
+        [Citation(claim="c", source_tool="search_saudi_codes", source_ref="م", quote="نص")], None)
+    assert out2[0].status == "مؤصَّل"
 
 
 # ---------- ④ مرونة الوضع الحقيقي (إعادة المحاولة) ----------

@@ -83,9 +83,16 @@ def research(state) -> dict:
         rp, rc = fp.result(), fc.result()
     pd = rp.get("data") or {}
     cd = rc.get("data") or {}
-    principles = pd.get("principles", []) or []
-    precedents = cd.get("precedents", []) or []
-    sources = sorted(set((rp.get("sources") or []) + (rc.get("sources") or [])))
+    # أدلة الاسترجاع الفعلية: None إن لم يجرِ استرجاعٌ في النداءين (وهمي/اختبار).
+    ev_p, ev_c = rp.get("evidence"), rc.get("evidence")
+    evidence = None if (ev_p is None and ev_c is None) else (ev_p or []) + (ev_c or [])
+    # ترشيحٌ قبل الحقن: مبدأٌ/سابقةٌ اقتباسُها لا يقابل المُسترجَع فعلاً لا يدخل ملف
+    # الدعوى أصلاً — «حقيقة السياق» يجب أن تكون مُتحقَّقةً هي الأخرى، لا النموذج وحده.
+    principles = _screen(pd.get("principles", []) or [],
+                         "المبادئ القضائية التجارية", "quote", evidence)
+    precedents = _screen(cd.get("precedents", []) or [],
+                         "السوابق القضائية التجارية", "holding", evidence)
+    src = sorted(set((rp.get("sources") or []) + (rc.get("sources") or [])))
     signal = cd.get("outcome_signal", "غير حاسم")
     return {
         "principles": principles,
@@ -93,12 +100,29 @@ def research(state) -> dict:
         "outcome_signal": signal,
         "principles_note": pd.get("note", ""),
         "precedents_note": cd.get("note", ""),
-        "sources": sources,
+        "sources": src,
+        "evidence": evidence,   # تُستعمل لاحقاً لتأصيل استشهادات القاضي بمبادئ ملف الدعوى
         # نسختان: «full» للعرض ولوكيل المدعى عليه (الخصم)، و«judge» لمحرّك الاستدلال —
         # تحجب اتجاه السوابق ونتائجها كي لا تُرسي القاضيَ نحو نتيجةٍ مسبقة (anchoring).
         "summary": summary_text(principles, precedents, signal, for_judge=False),
         "summary_judge": summary_text(principles, precedents, signal, for_judge=True),
     }
+
+
+def _screen(items: list[dict], system: str, quote_field: str,
+            evidence: list[str] | None) -> list[dict]:
+    """يُبقي العنصر إن أصَّله verify_cite (بأدلة الاسترجاع متى وُجدت) — يُسقط ما اقتباسه
+    لا يقابل نصاً مُسترجَعاً (شبهة اختلاقٍ في طبقة البحث نفسها)."""
+    from . import sources as _s
+    if evidence is None:      # لا استرجاع (وهمي/اختبار) — المسار المتساهل الموثَّق
+        return items
+    kept = []
+    for it in items:
+        c = _s.Cite(system=system, quote=it.get(quote_field, "") or "",
+                    claim=it.get("principle") or it.get("summary") or "")
+        if _s.verify_cite(c, evidence)[0] == _s.CiteStatus.VERIFIED:
+            kept.append(it)
+    return kept
 
 
 def summary_text(principles: list[dict], precedents: list[dict], outcome_signal: str,

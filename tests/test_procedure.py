@@ -32,13 +32,24 @@ def test_detect_invoked():
 def test_adjudicate_incident_mock():
     j = procedure.adjudicate_incident({"document_ledger": [_defense("عدم الاختصاص")]}, "jurisdiction")
     assert j["upheld"] is False and j["dispositive"] and j["grounded"]
-    p = procedure.adjudicate_incident({"document_ledger": [_defense("التقادم")]}, "prescription")
+    # التقادم لا يُقبل إلا بتاريخَي استحقاقٍ وقيدٍ تُحسب بهما المدة (حارسٌ حتمي).
+    p = procedure.adjudicate_incident(
+        {"document_ledger": [_defense("التقادم")],
+         "obligation_due_date": "2013-01-01", "filing_date": "2026-01-15"}, "prescription")
     assert p["upheld"] is True and p["dispositive"]
+
+
+def test_prescription_fails_closed_without_dates():
+    """غيابُ التواريخ → لا يُقبل الدفع بالتقادم مهما قال النموذج (fail-closed)."""
+    p = procedure.adjudicate_incident({"document_ledger": [_defense("التقادم")]}, "prescription")
+    assert p["upheld"] is False
+    assert "التواريخ" in p["reasoning"] or "تاريخ" in p["reasoning"]
 
 
 # ---------- أثر الدفع على المسار (عبر الرسم البياني) ----------
 def test_prescription_defense_dismisses_case():
-    state = _base(overrides={"defendant_plea-1": "الدفع الجوهري: سقطت الدعوى بالتقادم لمضي المدة النظامية دون مطالبة."})
+    state = _base(overrides={"defendant_plea-1": "الدفع الجوهري: سقطت الدعوى بالتقادم لمضي المدة النظامية دون مطالبة."},
+                  obligation_due_date="2013-01-01", filing_date="2026-01-15")
     final = build_graph().invoke(state, {"configurable": {"thread_id": "t-presc"}})
     op = final["judgment"].operative
     assert ("سماع" in op or "تقادم" in op or "سقوط" in op)

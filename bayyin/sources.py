@@ -160,6 +160,9 @@ def verify_cite(c: Cite, evidence: list[str] | None = None) -> tuple[CiteStatus,
             if not (joined.strip() and _loose_overlap(c.quote, joined)):
                 return CiteStatus.UNLOADED, (f"{c.system}: الاقتباس لا يقابل نصاً مُسترجَعاً "
                                              f"فعلاً — لا يُعتدّ به (شبهةُ اختلاق).")
+            if _numeric_mismatch(c.quote, joined):
+                return CiteStatus.UNLOADED, (f"{c.system}: الاقتباس يحمل عدداً لا يقابل "
+                                             f"المُسترجَع — شبهةُ تحريفٍ عددي، يُراجَع.")
         return CiteStatus.VERIFIED, f"{c.system} — مُسترجَعة باقتباسٍ مطابق."
     art = get(c.system, c.article)
     if art is None:
@@ -167,6 +170,11 @@ def verify_cite(c: Cite, evidence: list[str] | None = None) -> tuple[CiteStatus,
     # تحقّق اقتباسٍ متساهل: إن وُجد اقتباس ولم يتقاطع مطلقاً مع نصّ المادة → اشتباه تحريف.
     if c.quote and art.text and not _loose_overlap(c.quote, art.text):
         return CiteStatus.UNLOADED, "الاقتباس لا يتطابق مع نصّ المادة المؤصَّل — يُراجَع."
+    # النزاهة العددية: تحريف مهلةٍ/حدٍّ/مبلغٍ يمرّ من التقاطع اللفظي — يُصاد هنا.
+    # المرجع = نصّ المادة + رقمها + عنوانها (فذكر «المادة 187» في الاقتباس ليس تحريفاً).
+    if c.quote and _numeric_mismatch(c.quote, f"{art.text} {art.number} {art.title}"):
+        return CiteStatus.UNLOADED, ("الاقتباس يحمل عدداً يخالف النصّ المؤصَّل "
+                                     "(مهلة/حدّ/مبلغ) — شبهةُ تحريفٍ عددي، يُراجَع.")
     return CiteStatus.VERIFIED, art.title
 
 
@@ -187,11 +195,87 @@ def _tokens(s: str) -> set[str]:
 
 
 def _loose_overlap(quote: str, text: str) -> bool:
-    """مطابقة اقتباسٍ بتطبيعٍ عربيّ (تشكيل/همزات/ترقيم) — مهمّة للتأصيل الحقيقي."""
+    """مطابقة اقتباسٍ بتطبيعٍ عربيّ (تشكيل/همزات/ترقيم) — مهمّة للتأصيل الحقيقي.
+    ملاحظة: التقاطع اللفظي أعمى عن تحريف الأعداد («ستون» مكان «ثلاثون» يتقاطع 90%)؛
+    لذا يُكمَّل حتماً بفحص _numeric_mismatch أدناه — لا يُعوَّل عليه وحده."""
     qs, ts = _tokens(quote), _tokens(text)
     if not qs:
         return True
     return len(qs & ts) / len(qs) >= 0.25
+
+
+# ---------------------------------------------------------------------------
+# النزاهة العددية: الاقتباس القانوني يحمل قِيَمه الحاسمة (مُهَل/حدود/مبالغ/مواد)
+# في أرقامه — وتحريفُ رقمٍ واحدٍ («ستون» بدل «ثلاثون») أخطرُ تحريفٍ وأخفاه على
+# التقاطع اللفظي. نستخرج القيم من الأرقام (عربية/هندية) وكلمات العدد ومركّباتها،
+# ونشترط ألا يحمل الاقتباسُ قيمةً غائبةً عن النصّ المرجعي.
+# ---------------------------------------------------------------------------
+_AR_DIGITS = str.maketrans("٠١٢٣٤٥٦٧٨٩۰۱۲۳۴۵۶۷۸۹", "01234567890123456789")
+_THOUSANDS_SEP = re.compile(r"(?<=\d)[,.،٬](?=\d)")
+# مفاتيح المعجم بصيغة ما بعد _norm (ة→ه، الهمزات مطبَّعة، بلا تشكيل).
+_NUM_WORDS: dict[str, int] = {
+    "واحد": 1, "احد": 1, "اثنان": 2, "اثنين": 2, "اثنتان": 2, "اثنتين": 2, "اثنا": 2, "اثني": 2,
+    "ثلاث": 3, "ثلاثه": 3, "اربع": 4, "اربعه": 4, "خمس": 5, "خمسه": 5,
+    "ست": 6, "سته": 6, "سبع": 7, "سبعه": 7, "ثمان": 8, "ثماني": 8, "ثمانيه": 8,
+    "تسع": 9, "تسعه": 9, "عشر": 10, "عشره": 10,
+    "عشرون": 20, "عشرين": 20, "ثلاثون": 30, "ثلاثين": 30, "اربعون": 40, "اربعين": 40,
+    "خمسون": 50, "خمسين": 50, "ستون": 60, "ستين": 60, "سبعون": 70, "سبعين": 70,
+    "ثمانون": 80, "ثمانين": 80, "تسعون": 90, "تسعين": 90,
+    "مئه": 100, "مايه": 100, "ميه": 100, "مئتان": 200, "مئتين": 200,
+    "ثلاثمئه": 300, "ثلاثمايه": 300, "اربعمئه": 400, "اربعمايه": 400,
+    "خمسمئه": 500, "خمسمايه": 500, "ستمئه": 600, "ستمايه": 600,
+    "سبعمئه": 700, "سبعمايه": 700, "ثمانمئه": 800, "ثمانمايه": 800,
+    "تسعمئه": 900, "تسعمايه": 900,
+    "الف": 1000, "الفان": 2000, "الفين": 2000, "الاف": 1000, "مليون": 1000000, "ملايين": 1000000,
+}
+_NUM_PFX = ("وال", "بال", "فال", "كال", "لل", "ال", "و", "ف", "ب", "ل", "ك")
+
+
+def _num_values(s: str) -> set[int]:
+    """قيمُ النصّ العددية: أرقامٌ + كلماتُ عددٍ + مركّباتُها (خمسه عشر=15،
+    خمسه وعشرون=25، خمسون الف=50000، خمسه وعشرون الف=25000)."""
+    s = _norm(s).translate(_AR_DIGITS)
+    s = _THOUSANDS_SEP.sub("", s)
+    seq: list[int | None] = []
+    for tok in _SPLIT.split(s):
+        if not tok:
+            continue
+        if tok.isdigit():
+            seq.append(int(tok))
+            continue
+        t = tok
+        if t not in _NUM_WORDS:
+            for p in _NUM_PFX:
+                if t.startswith(p) and t[len(p):] in _NUM_WORDS:
+                    t = t[len(p):]
+                    break
+        seq.append(_NUM_WORDS.get(t))
+    vals = {v for v in seq if v is not None}
+    # مركّبات متجاورة في سياق الكلام
+    for i in range(len(seq) - 1):
+        a, b = seq[i], seq[i + 1]
+        if a is None or b is None:
+            continue
+        if b in (100, 1000, 1000000) and a < b:
+            vals.add(a * b)                                   # خمسون ألف = 50000
+            if i + 2 < len(seq) and isinstance(seq[i + 2], int) and seq[i + 2] in (1000, 1000000):
+                vals.add(a * b * seq[i + 2])
+        if b == 10 and 1 <= a <= 9:
+            vals.add(a + 10)                                  # خمسة عشر = 15
+        if 20 <= b <= 90 and b % 10 == 0 and 1 <= a <= 9:
+            vals.add(a + b)                                   # خمسة وعشرون = 25
+            if i + 2 < len(seq) and seq[i + 2] in (100, 1000, 1000000):
+                vals.add((a + b) * seq[i + 2])                # خمسة وعشرون ألفاً = 25000
+    return vals
+
+
+def _numeric_mismatch(quote: str, reference: str) -> bool:
+    """هل يحمل الاقتباسُ قيمةً عدديةً غائبةً عن النصّ المرجعي؟ (شبهة تحريفٍ عددي).
+    محافظٌ اتجاهاً: يفحص أعداد الاقتباس فقط — غيابُ عددٍ من الاقتباس ليس تحريفاً."""
+    q = _num_values(quote)
+    if not q:
+        return False
+    return bool(q - _num_values(reference))
 
 
 def assess_grounding(cites: list[Cite], evidence: list[str] | None = None) -> dict:

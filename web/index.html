@@ -151,6 +151,7 @@
   .note{font-size:12px;color:var(--muted);margin-top:8px;padding-inline-start:11px;border-inline-start:2px solid var(--bd2);line-height:1.7} .note b{color:var(--txt2)}
   .flagbox{margin-top:9px;font-size:12px;border-radius:9px;padding:8px 11px} .flagbox.warn{color:#8a5d00;background:#fdf6e6;border:1px solid #f0e2bb} .flagbox.bad{color:var(--bad);background:#fce7ef;border:1px solid #f6cdd9}
   .cites{display:flex;flex-wrap:wrap;gap:6px;margin-top:11px} .chip{font-size:11px;color:#7a5d10;background:#fbf3df;border:1px solid #eedfb6;border-radius:999px;padding:4px 9px}
+  .chip .cst{font-weight:800} .chip.c-ok{color:#0e7a52;background:#e6f6ee;border-color:#9fe1cb} .chip.c-un{color:#9a7b1b;background:#fbf3df;border-color:#eedfb6} .chip.c-fab{color:#b23a5b;background:#fdeef2;border-color:#f4c0d1}
   .rsec{margin-top:9px;border:1px solid var(--bd);border-radius:11px;padding:11px 13px;background:#fbfcfe} .rsec.op{border-color:#efe1bb;background:#fdf8ec} .rsec h4{margin:0 0 5px;font-size:12px;color:var(--judge)} .rsec p{margin:0;white-space:pre-wrap;line-height:1.9;font-size:13px;color:var(--txt2)}
   .badge{display:inline-block;margin-top:10px;font-size:12px;font-weight:700;padding:6px 13px;border-radius:999px} .badge.yes{color:var(--plaintiff);background:#e8f0fe;border:1px solid #cfe0fd} .badge.no{color:#9a7b1b;background:#fbf3df;border:1px solid #efe1bb}
   .conf{display:inline-block;font-size:11.5px;font-weight:700;padding:4px 11px;border-radius:999px;margin-inline-start:6px} .conf.hi{color:#0e7a52;background:#e6f6ee} .conf.mid{color:#8a5d00;background:#fdf6e6} .conf.lo{color:var(--bad);background:#fce7ef} .conf.blk{color:#fff;background:var(--bad)}
@@ -178,6 +179,7 @@
     <label class="toggle"><input type="checkbox" id="real"> حقيقي <span class="spin" id="busy" style="display:none"></span></label>
     <label class="toggle" title="تجاهل التخزين وأعد توليد كل العقد من جديد"><input type="checkbox" id="fresh"> 🔄 توليد جديد</label>
     <button class="run" id="run">▶ شغّل المحاكاة</button>
+    <button class="hbtn" id="stopBtn" title="إيقاف المحاكاة الجارية" style="display:none">⏹</button>
   </header>
   <div id="progress"><div id="progbar"></div></div>
 
@@ -189,13 +191,15 @@
         <div class="fld"><label>موضوع الدعوى</label><input id="f_subject"></div>
         <div class="row2"><div class="fld"><label>قيمة المطالبة (ر.س)</label><input id="f_value" type="number"></div><div class="fld"><label>تاريخ القيد</label><input id="f_filing" type="date"></div></div>
         <div class="row2"><div class="fld"><label>المدعي</label><input id="f_plaintiff"></div><div class="fld"><label>المدعى عليه</label><input id="f_defendant"></div></div>
+        <div class="fld"><label>تاريخ استحقاق الالتزام (لحساب التقادم حساباً)</label><input id="f_due" type="date"></div>
         <div class="fld"><label>الوقائع / العقد (حرّرها لتغيّر مجرى الحكم)</label><textarea id="f_claim"></textarea></div>
         <div class="fld"><label>ردّ المدعي</label><textarea id="f_reply"></textarea></div>
         <div class="opts">
           <label class="toggle"><input type="checkbox" id="f_appeal"> طلب الاستئناف بعد الحكم</label>
-          <label class="toggle"><input type="checkbox" id="f_training"> وضع التدريب (حقن ثغرة م.200)</label>
+          <label class="toggle"><input type="checkbox" id="f_training"> وضع التدريب (تُحقن ثغرةٌ عشوائيةٌ خفية)</label>
           <label class="toggle"><input type="checkbox" id="f_recon"> طلب التماس إعادة النظر</label>
         </div>
+        <div class="fld" id="reconWrap" style="display:none"><label>سبب الالتماس (م.٢٠٠ — اختر بنفسك بعد فحص الأوراق)</label><select id="f_recon_ground"></select></div>
         <div class="hint-sm">💡 بعد التشغيل: افتح أي عقدة وحرّر نصّها ثم «احفظ وأعد التشغيل». جرّب إضافة «الدفع بالتقادم» في المذكرة الجوابية لترى المحكمة تقضي بالسقوط.</div>
       </div>
     </aside>
@@ -232,8 +236,8 @@ let CFG={api_key:'',models:{},efforts:{},prompts:{}},CFG_DEF={models:{},efforts:
 let overrides={},timelineEvents=[],caseMeta={};
 const LANE=2100,NW=220,GAP=152,Y0=120;
 const ROLE_HEX={judge:'#bd8a12',defendant:'#0d9488',plaintiff:'#2563eb',expert:'#7c4ddb',appeal:'#c43d63',system:'#5d6678'};
-const NODEROLE={router:'system',intake_register:'system',research:'judge',rejected:'appeal',referred:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
-const METHOD={router:'يقرأ موضوع الدعوى وقيمتها فيصنّفها ويوجّه المسار.',intake_register:'يدقّق صحيفة الدعوى شكلاً واختصاصاً نوعياً تجارياً مقابل الأنظمة.',research:'هيئة بحثٍ قضائي تسترجع المبادئ القضائية التجارية والسوابق المشابهة لتوجيه التكييف والتطبيق (استئناساً لا تقييداً). اتجاه السوابق يُحجب عن القاضي تفادياً للإرساء.',referred:'تحكم المحكمة بعدم اختصاصها النوعي وتأمر بإحالة الدعوى إلى الجهة المختصّة — لا ردٌّ شكلي؛ تُنقل الخصومة وتبقى آثار رفعها.',notify_defendant:'إشعار المدعى عليه وضبط ميعاد الجواب (عبر ناجز).',defendant_plea:'يبني الدفوع الشكلية ثم الموضوعية مستنداً للأنظمة والسوابق.',incidents:'القاضي يفصل في الدفوع الشكلية المثارة (عدم الاختصاص/التقادم) بمنطق الاستدلال نفسه.',incident_ruling:'حكمٌ بقبول دفعٍ قاطعٍ يُنهي الدعوى (عدم اختصاص/سقوط بالتقادم).',plaintiff_plea:'ردّ المدعي على الدفوع وتمسّكه بطلباته.',hearing_manager:'القاضي يقدّر كفاية المرافعة: جولة، أو خبير، أو إقفال.',expert:'خبير محايد يقدّم تقريراً فنياً مسبّباً.',close_pleadings:'قفل باب المرافعة ورفع الدعوى للدراسة والتأمل.',judgment:'محرّك الاستدلال: تحرير ← تكييف ← محل النزاع ← إثبات ← تطبيق ← تسبيب ← مراجعة، مع بوابة تأصيلٍ حابسة.',serve_judgment:'تسليم الحكم وبدء مهلة الاعتراض (٣٠ يوماً).',appeal_brief:'لائحة اعتراض المستأنف.',appellee_response:'ردّ المستأنف ضدّه.',appeal_hearing:'جلسة استئناف للإيضاحات.',appellate_panel:'دائرة ثلاثية: تصويتٌ أعمى ثم مداولة ثم إجماع.',reconsideration:'فحص سبب الالتماس مقابل أسباب المادة ٢٠٠.'};
+const NODEROLE={router:'system',mediation:'system',intake_register:'system',research:'judge',rejected:'appeal',referred:'appeal',notify_defendant:'system',defendant_plea:'defendant',incidents:'judge',incident_ruling:'judge',plaintiff_plea:'plaintiff',hearing_manager:'judge',expert:'expert',close_pleadings:'judge',judgment:'judge',serve_judgment:'system',appeal_brief:'appeal',appellee_response:'defendant',appeal_hearing:'judge',appellate_panel:'judge',reconsideration:'appeal'};
+const METHOD={router:'يقرأ موضوع الدعوى وقيمتها فيصنّفها ويوجّه المسار.',mediation:'المصالحة والوساطة قبل القيد (م.8 محاكم تجارية): وجوبيةٌ لطيفٍ من الدعاوى؛ يُوثَّق انتهاؤها بغير اتفاقٍ شرطاً لقبول القيد.',intake_register:'يدقّق صحيفة الدعوى شكلاً واختصاصاً نوعياً تجارياً مقابل الأنظمة.',research:'هيئة بحثٍ قضائي تسترجع المبادئ القضائية التجارية والسوابق المشابهة لتوجيه التكييف والتطبيق (استئناساً لا تقييداً). اتجاه السوابق يُحجب عن القاضي تفادياً للإرساء.',referred:'تحكم المحكمة بعدم اختصاصها النوعي وتأمر بإحالة الدعوى إلى الجهة المختصّة — لا ردٌّ شكلي؛ تُنقل الخصومة وتبقى آثار رفعها.',notify_defendant:'إشعار المدعى عليه وضبط ميعاد الجواب (عبر ناجز).',defendant_plea:'يبني الدفوع الشكلية ثم الموضوعية مستنداً للأنظمة والسوابق.',incidents:'الجلسة التحضيرية: القاضي يفصل في الدفوع الشكلية بعد تمكين المدعي من الردّ عليها (مبدأ المواجهة) — لا من مذكرة المدعى عليه وحدها.',incident_ruling:'حكمٌ بقبول دفعٍ قاطع: التقادم/عدم القبول يُنهي الدعوى، وعدمُ الاختصاص يوجب الإحالة للمحكمة المختصّة (م.٧٦ مرافعات) ومهلةُ اعتراضه ١٠ أيام.',plaintiff_plea:'ردّ المدعي على المذكرة ودفوعها وتمسّكه بطلباته (قبل الفصل في الدفوع).',hearing_manager:'القاضي يقدّر كفاية المرافعة: جولة، أو خبير، أو إقفال.',expert:'خبير محايد يقدّم تقريراً فنياً مسبّباً.',close_pleadings:'قفل باب المرافعة ورفع الدعوى للدراسة والتأمل.',judgment:'محرّك الاستدلال: تحرير ← تكييف ← محل النزاع ← إثبات ← تطبيق ← تسبيب ← مراجعة، مع بوابة تأصيلٍ حابسة. التشكيل: قاضٍ فرد ≤ مليون، وإلا دائرة ثلاثية.',serve_judgment:'تسليم الحكم وبدء مهلة الاعتراض (٣٠ يوماً، و١٠ للمستعجل وأحكام الاختصاص).',appeal_brief:'لائحة اعتراض المستأنف.',appellee_response:'ردّ المستأنف ضدّه.',appeal_hearing:'جلسة استئناف للإيضاحات.',appellate_panel:'دائرة ثلاثية تنظر تدقيقاً (جولة عمياء)؛ فإن اتجهت لغير التأييد فمداولةُ مرافعة. الإلغاء يتحدّد أثره باتجاه الحكم المُلغى.',reconsideration:'فحص سبب الالتماس مقابل أسباب المادة ٢٠٠ — يختار المحامي السبب بنفسه.'};
 const ROLEKEYS=[['قاض','judge'],['دائرة','judge'],['مستأنف ضد','defendant'],['مستأنف','appeal'],['مدعى','defendant'],['خبير','expert'],['ملتمس','appeal'],['مدعي','plaintiff'],['مُسجّل','system'],['محكمة','judge']];
 const roleByActor=a=>{for(const[k,r]of ROLEKEYS)if((a||'').includes(k))return r;return null};
 const escH=s=>String(s==null?'':s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -310,7 +314,8 @@ function setActive(n){nodes.forEach(o=>o.el.classList.remove('active'));if(cur)f
 function finalizePrev(){if(cur){cur.el.classList.remove('active');cur.el.classList.add('done')}}
 
 /* المفتّش */
-function cites(cs){return(cs&&cs.length)?`<div class="cites">${cs.map(c=>`<span class="chip">📎 ${escH(c.claim)} ⟵ ${escH(c.tool)}${c.ref?(' — '+escH(c.ref)):''}</span>`).join('')}</div>`:''}
+function citeCls(s){return s==='مؤصَّل'?'c-ok':s==='مختلق'?'c-fab':s?'c-un':''}
+function cites(cs){return(cs&&cs.length)?`<div class="cites">${cs.map(c=>`<span class="chip ${citeCls(c.status)}" ${c.why?`title="${escH(c.why)}"`:''}>${c.status==='مؤصَّل'?'✅':c.status==='مختلق'?'⛔':c.status?'⚠️':'📎'} ${escH(c.claim)} ⟵ ${escH(c.tool)}${c.ref?(' — '+escH(c.ref)):''}${c.status?` <b class="cst">${escH(c.status)}</b>`:''}</span>`).join('')}</div>`:''}
 function selectNode(n){selected=n;nodes.forEach(o=>o.el.classList.toggle('sel',o===n));insp.classList.remove('closed');renderInspector(n);inspBody.classList.remove('enter');void inspBody.offsetWidth;inspBody.classList.add('enter')}
 function confCls(c){return c==='عالية'?'hi':c==='متوسطة'?'mid':c==='محجوب'?'blk':'lo'}
 function renderInspector(n){const d=n.data;
@@ -326,6 +331,7 @@ function renderInspector(n){const d=n.data;
   if(d.document){const doc=d.document;h+=`<div class="sec"><span class="seclbl">${escH(doc.kind)} — نصّ الوكيل ${doc.overridden?'<span class="ovbadge">📝 من المستخدم</span>':''}</span><textarea class="edit" id="editbox">${escH(doc.body)}</textarea><button class="save" id="saveBtn">💾 احفظ النص وأعد التشغيل</button></div>${cites(doc.citations)}`}
   if(d.ruling){const r=d.ruling,b=r.appealable===false?`<span class="badge no">نهائي — ${escH(r.route)}</span>`:`<span class="badge yes">قابل للاستئناف — ${escH(r.route)}</span>`;
     h+=`<div class="sec"><span class="seclbl">${escH(r.kind)} <span class="conf ${confCls(r.confidence)}">الثقة: ${escH(r.confidence||'—')}</span></span>`;
+    if(r.composition)h+=`<div class="note"><b>التشكيل:</b> ${escH(r.composition)}</div>`;
     if(r.blocked)h+=`<div class="flagbox bad">⛔ حُجِب النطق: حكمٌ مبنيٌّ على إسنادٍ مختلق أو مخالفةٍ جوهرية — لا يُعتدّ به.</div>`;
     if(r.chain&&r.chain.length)h+=`<div class="chain">${r.chain.map(c=>`<div class="op"><span class="${c.ok?'ok':'bd'}">${c.ok?'✓':'⚠'}</span><span class="nm">${escH(c.label)}</span>${c.issues&&c.issues.length?`<span class="bd" style="font-size:11px">${escH(c.issues[0])}</span>`:''}</div>`).join('')}</div>`;
     h+=`<div class="rsec"><h4>الوقائع</h4><p>${escH(r.facts)}</p></div><div class="rsec"><h4>الأسباب</h4><p>${escH(r.reasons)}</p></div><div class="rsec op"><h4>المنطوق</h4><p>${escH(r.operative)}</p></div>${b}`;
@@ -334,14 +340,19 @@ function renderInspector(n){const d=n.data;
     h+=`<div class="sec"><span class="seclbl">تصويت الدائرة (عمياء ثمّ مداولة)</span><div class="judges">${d.panel.votes.map(v=>`<div class="jcard"><div class="jlens">${escH(v.lens)}</div><div class="jvote ${vc(v.vote)}">${escH(v.vote)}</div></div>`).join('')}</div><div class="cons">⚖️ الإجماع: ${cons}</div></div>`}
   if(d.outcome){const ok=String(d.outcome).includes('أصاب');h+=`<div class="sec out ${ok?'ok':'bad'}"><div class="big">${ok?'✅':'⚠️'}</div><span class="seclbl" style="justify-content:center">نتيجة التماس إعادة النظر (م.٢٠٠)</span><p>${escH(d.outcome)}</p></div>`}
   inspBody.innerHTML=h;const sb=inspBody.querySelector('#saveBtn');
-  if(sb&&d.document)sb.onclick=()=>{overrides[d.document.node_key]=inspBody.querySelector('#editbox').value;statusText.innerHTML=`📝 حُفظ نصّك لـ«${escH(d.document.kind)}» — يُعاد التشغيل…`;runSim()};
+  if(sb&&d.document)sb.onclick=()=>{overrides[d.document.node_key]=inspBody.querySelector('#editbox').value;
+    if(running){pendingRestart=true;statusText.innerHTML=`📝 حُفظ نصّك لـ«${escH(d.document.kind)}» — سيُعاد التشغيل فور انتهاء الجولة الحالية.`;}
+    else{statusText.innerHTML=`📝 حُفظ نصّك لـ«${escH(d.document.kind)}» — يُعاد التشغيل…`;runSim()}};
   const eb=inspBody.querySelector('#exportBtn');if(eb&&d.ruling)eb.onclick=()=>exportRuling(d.ruling);
 }
 async function exportRuling(r){
+  const pron=(selected&&selected.date)?selected.date:{};
   const payload={kind:r.kind,facts:r.facts,reasons:r.reasons,operative:r.operative,route:r.route,
     appealable:r.appealable,confidence:r.confidence,blocked:r.blocked,flags:r.flags||[],
+    composition:r.composition||'',pronounced_hijri:pron.hijri||'',pronounced_greg:pron.greg||'',
+    plaintiff:$('#f_plaintiff').value||'المدعي',defendant:$('#f_defendant').value||'المدعى عليه',
     chain:(r.chain||[]).map(c=>({label:c.label,ok:c.ok,issues:c.issues||[]})),
-    citations:(r.citations||[]).map(c=>({claim:c.claim,tool:c.tool,ref:c.ref})),meta:caseMeta};
+    citations:(r.citations||[]).map(c=>({claim:c.claim,tool:c.tool,ref:c.ref,status:c.status||''})),meta:caseMeta};
   try{
     const resp=await fetch('/api/export',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload)});
     if(!resp.ok)throw new Error('export');
@@ -382,16 +393,29 @@ function handle(ev){switch(ev.type){
   case 'done': finalizePrev();statusText.innerHTML='✔ انتهت الجلسة — انقر عقدة لتحرير نصّها وإعادة التشغيل، أو افتح 📅 التقويم.';$('#progbar').style.width='100%';$('#busy').style.display='none';running=false;$('#run').disabled=false;break;
 }}
 
-/* البثّ عبر POST */
-async function streamRun(body){const resp=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body)});const reader=resp.body.getReader(),dec=new TextDecoder();let buf='';
-  while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{handle(JSON.parse(line.slice(5).trim()))}catch(e){console.error(e)}}}}}
-function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0:0.45,fresh:$('#fresh').checked,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,efforts:CFG.efforts,prompts:CFG.prompts}}}
-async function runSim(){if(running)return;running=true;$('#run').disabled=true;if(view!=='flow')setView('flow');nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=null;seq=0;
-  try{await streamRun(caseBody())}catch(e){statusText.textContent='تعذّر الاتصال بالخادم';$('#busy').style.display='none';running=false;$('#run').disabled=false}}
+/* البثّ عبر POST — بفحص الاستجابة، وإلغاءٍ من المستخدم، وكشف انقطاع البث */
+let currentAbort=null,pendingRestart=false,sawDone=false;
+async function streamRun(body){currentAbort=new AbortController();
+  const resp=await fetch('/api/run',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(body),signal:currentAbort.signal});
+  if(!resp.ok)throw new Error('HTTP '+resp.status);
+  const reader=resp.body.getReader(),dec=new TextDecoder();let buf='';sawDone=false;
+  while(true){const{value,done}=await reader.read();if(done)break;buf+=dec.decode(value,{stream:true});let i;while((i=buf.indexOf('\n\n'))>=0){const line=buf.slice(0,i).split('\n').find(l=>l.startsWith('data:'));buf=buf.slice(i+2);if(line){try{const ev=JSON.parse(line.slice(5).trim());if(ev.type==='done')sawDone=true;handle(ev)}catch(e){console.error(e)}}}}
+  if(!sawDone)statusText.innerHTML='⚠️ انقطع البثّ قبل اكتمال المحاكاة — أعد التشغيل.';}
+function caseBody(){const real=$('#real').checked;return{mock:real?0:1,pace:real?0:0.45,fresh:$('#fresh').checked,overrides,case:{case_id:'TC-2026-001',case_type:'تجاري',claim_subject:$('#f_subject').value,claim_value:$('#f_value').value,filing_date:$('#f_filing').value,obligation_due_date:$('#f_due').value||undefined,plaintiff:$('#f_plaintiff').value,defendant:$('#f_defendant').value,claim_text:$('#f_claim').value,plaintiff_reply:$('#f_reply').value,appeal_requested:$('#f_appeal').checked,training:$('#f_training').checked,reconsideration:$('#f_recon').checked,appeal_brief:'أعترض على الحكم لمخالفته الثابت بالأوراق وألتمس إعادة النظر فيه.',recon_ground:$('#f_recon_ground').value||'ultra_petita'},config:{api_key:CFG.api_key||undefined,models:CFG.models,efforts:CFG.efforts,prompts:CFG.prompts}}}
+async function runSim(){if(running)return;running=true;$('#run').disabled=true;$('#stopBtn').style.display='';if(view!=='flow')setView('flow');nodes.forEach(n=>n.el.remove());nodes=[];edges.forEach(e=>e.el.remove());edges=[];cur=prev=null;seq=0;
+  try{await streamRun(caseBody())}
+  catch(e){statusText.textContent=(e&&e.name==='AbortError')?'⏹ أُوقفت المحاكاة بطلبك.':'تعذّر الاتصال بالخادم — '+(e.message||'');}
+  finally{running=false;$('#run').disabled=false;$('#busy').style.display='none';$('#stopBtn').style.display='none';
+    if(pendingRestart){pendingRestart=false;runSim()}}}
 $('#run').onclick=runSim;
+$('#stopBtn').onclick=()=>{if(currentAbort)currentAbort.abort()};
+$('#f_recon').onchange=e=>{$('#reconWrap').style.display=e.target.checked?'':'none'};
 
 /* ===== الإعدادات (مفتاح OpenAI + النماذج + مطالبات النظام) ===== */
 async function loadConfig(){try{CFG_DEF=await(await fetch('/api/config')).json();}catch(e){}
+  // أسباب م.200 السبعة — يختار المحامي سببَ التماسه بنفسه (اكتشافٌ حقيقي لا مطابقة مقدَّرة).
+  const rg=CFG_DEF.recon_grounds||{};const sel=$('#f_recon_ground');
+  if(sel&&!sel.options.length)sel.innerHTML=Object.entries(rg).map(([k,v])=>`<option value="${escH(k)}">${escH(v)}</option>`).join('')||'<option value="ultra_petita">الحكم بما لم يُطلب أو بأكثر منه</option>';
   CFG.models={...(CFG_DEF.models||{})};CFG.efforts={...(CFG_DEF.efforts||{})};CFG.prompts={...(CFG_DEF.prompts||{})};
   try{const s=JSON.parse(localStorage.getItem('bayyin_cfg')||'null');if(s){CFG.api_key=s.api_key||'';Object.assign(CFG.models,s.models||{});Object.assign(CFG.efforts,s.efforts||{});Object.assign(CFG.prompts,s.prompts||{})}}catch(e){}}
 function modelOpts(cur){const seen=new Set();const out=[];[cur,...(CFG_DEF.model_suggestions||[])].forEach(m=>{if(m&&!seen.has(m)){seen.add(m);out.push(m)}});return out;}

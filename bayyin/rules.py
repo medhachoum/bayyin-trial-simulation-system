@@ -89,6 +89,35 @@ def validate_claim_sheet(state: CaseState) -> ValidationResult:
     return ValidationResult(ok=not issues, issues=issues)
 
 
+def mediation_required(state: CaseState) -> tuple[bool, str]:
+    """هل يجب عرض النزاع على المصالحة/الوساطة قبل القيد؟ (م.8 محاكم تجارية + لائحته م.58)
+    نطاقٌ تمثيلي: الدعاوى التي لا تزيد على مليون ريال، أو عقدٌ تضمّن اتفاق تسويةٍ ودّية."""
+    value = state.get("claim_value", 0) or 0
+    if value <= settings.MEDIATION_MAX_SAR:
+        return True, "دعوى لا تزيد قيمتها على مليون ريال — المصالحة قبل القيد وجوبية."
+    text = _all_pleadings_text(state)
+    # الصيغتان بأل التعريف وبدونها (درسٌ عربيٌّ متكرّر: «التسوية الودية» ≠ «تسوية ودية»).
+    if any(k in text for k in ("تسوية ودية", "التسوية الودية", "تسوية ودّية", "التسوية الودّية",
+                               "فضّ النزاع ودياً", "فض النزاع وديا", "الصلح قبل القضاء", "صلح قبل القضاء")):
+        return True, "العقد تضمّن اتفاقاً على التسوية الودّية قبل القضاء — تجب المصالحة أولاً."
+    return False, ""
+
+
+def first_instance_composition(state: CaseState) -> str:
+    """تشكيل الدائرة الابتدائية: قاضٍ فردٌ فيما لا يزيد على مليون ريال، وإلا دائرةٌ ثلاثية."""
+    value = state.get("claim_value", 0) or 0
+    return ("قاضٍ فرد" if value <= settings.SINGLE_JUDGE_MAX_SAR
+            else "دائرة ابتدائية ثلاثية")
+
+
+def appeal_window_days(state: CaseState) -> int:
+    """مهلة الاعتراض: 30 يوماً، و10 أيامٍ للمستعجلة والأحكام الصادرة في الاختصاص."""
+    disp = state.get("incident_disposition") or {}
+    if disp.get("key") == "jurisdiction":
+        return settings.APPEAL_WINDOW_DAYS_URGENT
+    return settings.APPEAL_WINDOW_DAYS
+
+
 def pleadings_saturated(state: CaseState) -> bool:
     """
     هل بلغ تبادل المذكرات حالة التشبّع؟

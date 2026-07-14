@@ -46,38 +46,50 @@ def _vote(llm, state: CaseState, lens: str, peers: list[str] | None = None) -> d
     )
     d = res.get("data") or {"vote": "تأييد", "opinion": "", "cites": []}
     return {"lens": lens, "vote": d.get("vote", "تأييد"), "opinion": d.get("opinion", ""),
-            "cites": d.get("cites") or [], "evidence": res.get("evidence") or []}
+            "cites": d.get("cites") or [], "evidence": res.get("evidence")}
 
 
 def run_panel(state: CaseState) -> dict:
     """يشغّل الدائرة ويُرجع تحديث الحالة (الحكم النهائي المؤصَّل + أصوات + تدقيق)."""
     llm = get_llm()
 
-    # 1) جولة عمياء — كل قاضٍ مستقل (الأصوات الثلاثة متوازية).
+    # 1) جولة عمياء — كل قاضٍ مستقل (الأصوات الثلاثة متوازية). هذا هو «النظر تدقيقاً»
+    #    استناداً لما في الملف — وهو الأصل النظامي في نظر الاستئناف.
     with ThreadPoolExecutor(max_workers=3) as ex:
         blind = list(ex.map(lambda lens: _vote(llm, state, lens), LENSES))
 
-    # 2) مداولة — يرى كلٌّ آراء زملائه مجهّلةً ويعيد النظر (الثلاثة متوازية أيضاً).
-    anon = [f"رأي عضو ({b['lens']}): {b['vote']} — {b['opinion']}" for b in blind]
+    audit = [event("دائرة الاستئناف", "نظر الاستئناف تدقيقاً — جولة تصويت عمياء",
+                   model=settings.GPT_JUDGE,
+                   detail="، ".join(f"{b['lens']}: {b['vote']}" for b in blind))]
 
-    def _delib(i_lens):
-        i, lens = i_lens
-        peers = [a for j, a in enumerate(anon) if j != i]
-        return _vote(llm, state, lens, peers)
+    if len({b["vote"] for b in blind}) == 1 and blind[0]["vote"] == "تأييد":
+        # إجماعٌ أعمى على التأييد → يُكتفى بالتدقيق (لا مداولةَ مرافعةٍ بلا موجب).
+        deliberated = blind
+        audit.append(event("دائرة الاستئناف", "إجماعٌ على التأييد تدقيقاً — لا موجب للمرافعة"))
+    else:
+        # اتجاهٌ لغير التأييد → مداولة (بمنطق «لا إلغاء إلا بعد مرافعة/مداولة»).
+        anon = [f"رأي عضو ({b['lens']}): {b['vote']} — {b['opinion']}" for b in blind]
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        deliberated = list(ex.map(_delib, list(enumerate(LENSES))))
+        def _delib(i_lens):
+            i, lens = i_lens
+            peers = [a for j, a in enumerate(anon) if j != i]
+            return _vote(llm, state, lens, peers)
+
+        with ThreadPoolExecutor(max_workers=3) as ex:
+            deliberated = list(ex.map(_delib, list(enumerate(LENSES))))
+        audit.append(event("دائرة الاستئناف", "مداولة وتصويت نهائي", model=settings.GPT_JUDGE,
+                           detail="، ".join(f"{d['lens']}: {d['vote']}" for d in deliberated)))
 
     votes = [d["vote"] for d in deliberated]
     consensus = rules.panel_consensus(votes)
     cite_dicts = [c for d in deliberated for c in d.get("cites", [])]
-    evidence = [e for d in deliberated for e in d.get("evidence", [])]
+    ev_lists = [d.get("evidence") for d in deliberated]
+    research_ev = (state.get("research") or {}).get("evidence")
+    if all(e is None for e in ev_lists) and research_ev is None:
+        evidence = None      # لا استرجاعَ إطلاقاً (وهمي/اختبار) — لا يُحاسَب الاقتباس عليه
+    else:
+        evidence = [x for e in ev_lists if e for x in e] + (research_ev or [])
     final, grounding = _compose_final(state, consensus, deliberated, cite_dicts, evidence)
-
-    audit = [event("دائرة الاستئناف", "جولة تصويت عمياء", model=settings.GPT_JUDGE,
-                   detail="، ".join(f"{b['lens']}: {b['vote']}" for b in blind))]
-    audit.append(event("دائرة الاستئناف", "مداولة وتصويت نهائي", model=settings.GPT_JUDGE,
-                       detail="، ".join(f"{d['lens']}: {d['vote']}" for d in deliberated)))
     audit.append(event("بوابة التأصيل (الاستئناف)",
                        f"مؤصَّل:{grounding['verified']} · شرعي:{grounding['sharia']} · "
                        f"غير مُحمَّل:{grounding['unloaded']} · مختلق:{grounding['fabricated']}",
@@ -114,8 +126,27 @@ def _appeal_brief_text(state: CaseState) -> str:
     return "—"
 
 
+def _annul_operative(trial) -> str:
+    """أثر «الإلغاء» يتحدّد باتجاه الحكم المُلغى — لا رفضاً للدعوى دائماً:
+    إلغاءُ حكمٍ للمدعي → رفض دعواه؛ وإلغاءُ حكمٍ برفضها/للمدعى عليه → الحكمُ للمدعي
+    بطلباته (وإلا انقلبت النتيجة على المستأنِف الناجح)؛ وحكمٌ في دفعٍ شكليٍّ دون
+    الموضوع → إعادةُ الدعوى للدائرة الابتدائية صوناً لدرجتَي التقاضي."""
+    direction = getattr(trial, "direction", "") if trial else ""
+    facts = (getattr(trial, "facts", "") or "") if trial else ""
+    if trial and "دفعٍ شكلي" in facts:
+        return ("حكمت الدائرة بإلغاء الحكم المستأنف الصادر في الدفع الشكلي، "
+                "وإعادة الدعوى إلى الدائرة الابتدائية للفصل في موضوعها — "
+                "صوناً لمبدأ التقاضي على درجتين.")
+    if direction == "للمدعي":
+        return "حكمت الدائرة بإلغاء الحكم المستأنف والقضاء برفض الدعوى."
+    if direction in ("رفض الدعوى", "للمدعى عليه"):
+        return ("حكمت الدائرة بإلغاء الحكم المستأنف، والقضاء مجدّداً — بعد المرافعة — "
+                "بإجابة المدعي إلى طلباته الثابتة بالأوراق.")
+    return "حكمت الدائرة بإلغاء الحكم المستأنف والحكم فيما أُلغي بعد المرافعة بما يظهر لها."
+
+
 def _compose_final(state: CaseState, consensus: str, deliberated: list[dict],
-                   cite_dicts: list[dict], evidence: list[str]) -> tuple[Ruling, dict]:
+                   cite_dicts: list[dict], evidence: list[str] | None) -> tuple[Ruling, dict]:
     """يصوغ الحكم النهائي القطعي بإجماع الدائرة، ثم يمرّره على بوابة التأصيل الحابسة."""
     trial = state.get("judgment")
     base_op = trial.operative if trial else ""
@@ -148,7 +179,7 @@ def _compose_final(state: CaseState, consensus: str, deliberated: list[dict],
         if consensus == "تأييد":
             operative = f"حكمت الدائرة بتأييد الحكم المستأنف القاضي بـ«{base_op}» ورفض الاستئناف."
         elif consensus == "إلغاء":
-            operative = "حكمت الدائرة بإلغاء الحكم المستأنف والقضاء برفض الدعوى الأصلية."
+            operative = _annul_operative(trial)
         else:
             operative = f"حكمت الدائرة بتعديل الحكم المستأنف «{base_op}» بما يتفق ونتيجة المراجعة."
         operative += " وهذا حكم نهائي قطعي."

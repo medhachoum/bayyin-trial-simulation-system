@@ -9,9 +9,10 @@ settings.MOCK = True
 
 # ---------- الوعي الزمني ----------
 def test_timeline_advance_and_hijri():
-    iso, d = timeline.advance("2026-01-15", "notify_defendant")  # +7 أيام
-    assert iso == "2026-01-22"
-    assert d["greg"] == "2026-01-22"
+    # التبليغ في اليوم التالي للقيد على الأكثر (لائحة المحاكم التجارية) → +1 يوم.
+    iso, d = timeline.advance("2026-01-15", "notify_defendant")
+    assert iso == "2026-01-16"
+    assert d["greg"] == "2026-01-16"
     assert d["hijri"]                     # هجريٌّ غير فارغ (hijridate مثبّت)
 
 

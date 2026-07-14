@@ -9,36 +9,45 @@
 from __future__ import annotations
 
 import json
+import random
+import threading
 import time
 from pathlib import Path
 
 from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, Response, StreamingResponse
 
-from bayyin import config, nodes, settings, timeline
+from bayyin import config, nodes, rules, settings, timeline
 from bayyin.graph import build_graph
 from bayyin.state import Document, DocType, Party
 
 app = FastAPI(title="بيّن — محكمة افتراضية زمنية الوعي")
 WEB = Path(__file__).parent / "web"
 
+# قفلٌ يسلسل التشغيلات: الإعدادات تُطبَّق على globals الوحدة (config.apply/MOCK/…)
+# فتشغيلان متوازيان يتصارعان (وقد يتسرّب مفتاحُ مستخدمٍ لنداءات آخر). إلى حين عزل
+# الإعدادات لكل تشغيل (RunConfig)، يُنفَّذ تشغيلٌ واحدٌ في كل لحظة.
+_RUN_LOCK = threading.Lock()
+
 STAGES: dict[str, tuple[str, str]] = {
-    "router": ("تصنيف الدعوى", "🧭"), "intake_register": ("قيد الدعوى", "📝"),
+    "router": ("تصنيف الدعوى", "🧭"),
+    "mediation": ("المصالحة والوساطة (قبل القيد)", "🤝"),
+    "intake_register": ("قيد الدعوى", "📝"),
     "research": ("البحث القضائي (مبادئ وسوابق)", "🔎"),
-    "rejected": ("عدم قبول الدعوى شكلاً", "⛔"),
-    "referred": ("عدم اختصاصٍ نوعي — إحالة", "↪️"), "notify_defendant": ("إشعار وتبليغ", "📨"),
-    "defendant_plea": ("مذكرة جوابية", "🛡️"),
-    "incidents": ("الفصل في الدفوع", "⚖️"), "incident_ruling": ("حكمٌ بدفعٍ قاطع", "📑"),
+    "rejected": ("طلب استيفاء النواقص (قرارٌ إداري)", "📋"),
+    "referred": ("عدم اختصاصٍ نوعي — إحالة", "↪️"), "notify_defendant": ("تبليغٌ وتحديد جلسة", "📨"),
+    "defendant_plea": ("مذكرة الدفاع", "🛡️"),
+    "incidents": ("الجلسة التحضيرية — الفصل في الدفوع", "⚖️"), "incident_ruling": ("حكمٌ بدفعٍ قاطع", "📑"),
     "plaintiff_plea": ("ردّ المدعي", "👤"),
-    "hearing_manager": ("جلسة", "⚖️"), "expert": ("ندب خبير", "🔬"),
+    "hearing_manager": ("جلسة مرافعة", "⚖️"), "expert": ("ندب خبير", "🔬"),
     "close_pleadings": ("حجز للحكم", "🔒"), "judgment": ("النطق بالحكم", "⚖️"),
     "serve_judgment": ("تسليم الحكم", "📜"), "appeal_brief": ("اعتراض استئناف", "✋"),
     "appellee_response": ("ردّ المستأنف ضدّه", "🛡️"), "appeal_hearing": ("جلسة استئناف", "🏛️"),
-    "appellate_panel": ("دائرة الاستئناف", "👨‍⚖️"), "reconsideration": ("التماس إعادة النظر", "🔁"),
+    "appellate_panel": ("دائرة الاستئناف (تدقيقاً)", "👨‍⚖️"), "reconsideration": ("التماس إعادة النظر", "🔁"),
 }
-RAIL = ["intake_register", "research", "notify_defendant", "defendant_plea", "incidents", "plaintiff_plea",
-        "hearing_manager", "expert", "close_pleadings", "judgment", "serve_judgment", "appeal_brief",
-        "appellee_response", "appeal_hearing", "appellate_panel", "reconsideration"]
+RAIL = ["mediation", "intake_register", "research", "notify_defendant", "defendant_plea", "plaintiff_plea",
+        "incidents", "hearing_manager", "expert", "close_pleadings", "judgment", "serve_judgment",
+        "appeal_brief", "appellee_response", "appeal_hearing", "appellate_panel", "reconsideration"]
 
 
 def _f(v, d=0.0):
@@ -68,12 +77,17 @@ def build_state(body: dict) -> tuple[dict, str]:
         "overrides": body.get("overrides") or {},
         "filing_date": filing, "deadlines": {},
     }
+    if c.get("obligation_due_date"):
+        state["obligation_due_date"] = c["obligation_due_date"]
     if c.get("appeal_requested"):
         state["appeal_requested"] = True
         if c.get("appeal_brief"):
             state["scripted_appeal_brief"] = c["appeal_brief"]
     if c.get("training"):
-        state["inject_exploit"] = c.get("inject_exploit") or "ultra_petita"
+        # الثغرة المحقونة تُختار عشوائياً خادمياً (لا تُردَّد للعميل) — فيكون اكتشاف
+        # المحامي حقيقياً لا مطابقةً مُقدَّرةً سلفاً.
+        from bayyin import exploits
+        state["inject_exploit"] = c.get("inject_exploit") or random.choice(sorted(exploits.SUPPORTED))
     if c.get("reconsideration"):
         state["reconsideration_requested"] = True
         state["reconsideration_ground"] = c.get("recon_ground") or "ultra_petita"
@@ -81,7 +95,9 @@ def build_state(body: dict) -> tuple[dict, str]:
 
 
 def _cits(items) -> list[dict]:
-    return [{"claim": c.claim, "tool": c.source_tool, "ref": c.source_ref} for c in items]
+    return [{"claim": c.claim, "tool": c.source_tool, "ref": c.source_ref,
+             "status": getattr(c, "status", ""), "why": getattr(c, "status_reason", "")}
+            for c in items]
 
 
 def events_for(node: str, delta: dict, date: dict | None = None) -> list[dict]:
@@ -110,6 +126,7 @@ def events_for(node: str, delta: dict, date: dict | None = None) -> list[dict]:
                         "operative": r.operative, "appealable": r.appealable, "route": r.appeal_route,
                         "citations": _cits(r.citations), "confidence": getattr(r, "confidence", ""),
                         "direction": getattr(r, "direction", ""), "blocked": getattr(r, "blocked", False),
+                        "composition": getattr(r, "composition", ""),
                         "flags": getattr(r, "flags", []), "chain": adj.get("chain", []) if key == "judgment" else []})
     if delta.get("panel_votes"):
         evs.append({"type": "panel", "votes": [{"lens": v["lens"], "vote": v["vote"]} for v in delta["panel_votes"]]})
@@ -131,8 +148,11 @@ def index() -> HTMLResponse:
 
 @app.get("/api/config")
 def get_config() -> dict:
-    """الافتراضيات (النماذج والمطالبات) لتعبئة صفحة الإعدادات — لا تبدأ فارغة."""
-    return config.defaults()
+    """الافتراضيات (النماذج والمطالبات) لتعبئة صفحة الإعدادات — لا تبدأ فارغة.
+    يشمل أسباب م.200 السبعة ليختار المحامي سببَ التماسه بنفسه (تدريبٌ حقيقي)."""
+    d = config.defaults()
+    d["recon_grounds"] = rules.ARTICLE_200_GROUNDS
+    return d
 
 
 @app.post("/api/export")
@@ -156,31 +176,43 @@ async def run(request: Request) -> StreamingResponse:
     pace = max(0.0, _f(body.get("pace"), 0.5))
 
     def gen():
-        config.apply(body.get("config"))   # مفتاح المستخدم + النماذج + المطالبات (مع تصفير الأصل)
-        settings.MOCK = bool(mock)
-        settings.LLM_CACHE_FRESH = bool(body.get("fresh"))  # «توليد جديد» يتجاهل التخزين
-        nodes._llm.cache_clear()
-        state, filing = build_state(body)
-        clock = filing
-        graph = build_graph()
-        rail = [{"node": n, "label": STAGES[n][0], "icon": STAGES[n][1]} for n in RAIL]
-        yield _sse({"type": "start", "case_id": state["case_id"], "case_type": state["case_type"],
-                    "value": state["claim_value"], "mock": bool(mock),
-                    "filing": timeline.fmt(timeline.parse(filing)), "rail": rail})
+        # تسلسل التشغيلات (لا تشغيلين معاً): الإعدادات globals — انظر تعليق _RUN_LOCK.
+        if not _RUN_LOCK.acquire(blocking=False):
+            yield _sse({"type": "log", "actor": "النظام", "action": "بانتظار الدور",
+                        "detail": "محاكاةٌ أخرى جاريةٌ الآن — سيبدأ تشغيلك فور انتهائها.", "model": ""})
+            _RUN_LOCK.acquire()
         try:
-            cfg = {"configurable": {"thread_id": state["case_id"] + "-" + str(time.monotonic())}}
-            for chunk in graph.stream(state, cfg, stream_mode="updates"):
-                for node, delta in chunk.items():
-                    clock, d = timeline.advance(clock, node)
-                    for ev in events_for(node, delta, d):
-                        yield _sse(ev)
-                        time.sleep(pace)
-                    if node == "serve_judgment":
-                        yield _sse({"type": "deadline", "label": "مهلة الاعتراض بالاستئناف",
-                                    "date": timeline.add_days(clock, timeline.APPEAL_WINDOW_DAYS)})
-        except Exception as e:
-            yield _sse({"type": "error", "message": f"{type(e).__name__}: {str(e)[:300]}"})
-        yield _sse({"type": "done"})
+            config.apply(body.get("config"))   # مفتاح المستخدم + النماذج + المطالبات (مع تصفير الأصل)
+            settings.MOCK = bool(mock)
+            settings.LLM_CACHE_FRESH = bool(body.get("fresh"))  # «توليد جديد» يتجاهل التخزين
+            nodes._llm.cache_clear()
+            state, filing = build_state(body)
+            clock = filing
+            graph = build_graph()
+            rail = [{"node": n, "label": STAGES[n][0], "icon": STAGES[n][1]} for n in RAIL]
+            yield _sse({"type": "start", "case_id": state["case_id"], "case_type": state["case_type"],
+                        "value": state["claim_value"], "mock": bool(mock),
+                        "filing": timeline.fmt(timeline.parse(filing)), "rail": rail})
+            appeal_days = settings.APPEAL_WINDOW_DAYS
+            try:
+                cfg = {"configurable": {"thread_id": state["case_id"] + "-" + str(time.monotonic())}}
+                for chunk in graph.stream(state, cfg, stream_mode="updates"):
+                    for node, delta in chunk.items():
+                        clock, d = timeline.advance(clock, node)
+                        if delta.get("appeal_window_days"):
+                            appeal_days = delta["appeal_window_days"]
+                        for ev in events_for(node, delta, d):
+                            yield _sse(ev)
+                            time.sleep(pace)
+                        if node == "serve_judgment":
+                            yield _sse({"type": "deadline",
+                                        "label": f"مهلة الاعتراض ({appeal_days} يوماً)",
+                                        "date": timeline.add_days(clock, appeal_days)})
+            except Exception as e:
+                yield _sse({"type": "error", "message": f"{type(e).__name__}: {str(e)[:300]}"})
+            yield _sse({"type": "done"})
+        finally:
+            _RUN_LOCK.release()
 
     return StreamingResponse(gen(), media_type="text/event-stream",
                              headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
